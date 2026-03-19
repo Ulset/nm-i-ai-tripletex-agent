@@ -223,6 +223,86 @@ class TestExecuteWithReplan:
         mock_generator.replan.assert_not_called()
 
 
+class TestEfficiencyTracking:
+    def test_successful_execution_tracks_api_calls(self, executor, mock_client):
+        mock_client.post.side_effect = [
+            {"value": {"id": 1}},
+            {"value": {"id": 2}},
+        ]
+        plan = ExecutionPlan(steps=[
+            PlanStep(step_number=1, action="POST", endpoint="/v2/customer", payload={"name": "Acme"}, description="Create customer"),
+            PlanStep(step_number=2, action="POST", endpoint="/v2/order", payload={"customerId": 1}, description="Create order"),
+        ])
+        result = executor.execute(plan)
+        assert result.total_api_calls == 2
+        assert result.error_count == 0
+
+    def test_failed_execution_tracks_api_calls_and_errors(self, executor, mock_client):
+        mock_client.post.side_effect = [
+            {"value": {"id": 1}},
+            TripletexAPIError(422, "Missing field"),
+        ]
+        plan = ExecutionPlan(steps=[
+            PlanStep(step_number=1, action="POST", endpoint="/v2/customer", payload={"name": "Acme"}, description="Create customer"),
+            PlanStep(step_number=2, action="POST", endpoint="/v2/order", payload={"customerId": 1}, description="Create order"),
+        ])
+        result = executor.execute(plan)
+        assert result.total_api_calls == 2
+        assert result.error_count == 1
+
+    def test_replan_accumulates_api_calls(self, executor, mock_client):
+        """execute_with_replan accumulates total_api_calls across retries."""
+        mock_client.post.side_effect = [
+            {"value": {"id": 1}},
+            TripletexAPIError(422, "Missing field"),
+            {"value": {"id": 50}},
+        ]
+        initial_plan = ExecutionPlan(steps=[
+            PlanStep(step_number=1, action="POST", endpoint="/v2/customer", payload={"name": "Acme"}, description="Create customer"),
+            PlanStep(step_number=2, action="POST", endpoint="/v2/order", payload={"customerId": "$step1.value.id"}, description="Create order"),
+        ])
+        corrected_plan = ExecutionPlan(steps=[
+            PlanStep(step_number=1, action="POST", endpoint="/v2/order", payload={"customer": {"id": 1}, "deliveryDate": "2024-01-01"}, description="Create order with fix"),
+        ])
+        mock_generator = MagicMock()
+        mock_generator.replan.return_value = corrected_plan
+
+        result = executor.execute_with_replan(
+            plan=initial_plan,
+            generator=mock_generator,
+            original_prompt="Create order for Acme",
+        )
+
+        assert result.success is True
+        assert result.total_api_calls == 3  # 2 from first attempt + 1 from retry
+        assert result.error_count == 1  # 1 error from first attempt
+        assert executor.replan_count == 1
+
+    def test_replan_count_tracked(self, executor, mock_client):
+        """executor.replan_count reflects the number of re-plans performed."""
+        mock_client.post.side_effect = TripletexAPIError(500, "Server error")
+        plan = ExecutionPlan(steps=[
+            PlanStep(step_number=1, action="POST", endpoint="/v2/employee", payload={"firstName": "Ola"}, description="Create employee"),
+        ])
+        failing_plan = ExecutionPlan(steps=[
+            PlanStep(step_number=1, action="POST", endpoint="/v2/employee", payload={"firstName": "Ola"}, description="Retry"),
+        ])
+        mock_generator = MagicMock()
+        mock_generator.replan.return_value = failing_plan
+
+        result = executor.execute_with_replan(
+            plan=plan,
+            generator=mock_generator,
+            original_prompt="Create employee",
+            max_replans=2,
+        )
+
+        assert result.success is False
+        assert executor.replan_count == 2
+        assert result.total_api_calls == 3  # 1 initial + 1 per replan attempt
+        assert result.error_count == 3
+
+
 class TestHelpers:
     def test_traverse_simple(self):
         assert _traverse({"value": {"id": 42}}, "value.id") == 42

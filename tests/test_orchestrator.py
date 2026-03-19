@@ -231,6 +231,51 @@ class TestTaskOrchestrator:
     @responses.activate
     @patch("src.plan_generator.OpenAI")
     @patch("src.file_processor.OpenAI")
+    def test_efficiency_summary_logged(self, mock_file_openai, mock_plan_openai):
+        """Orchestrator logs efficiency summary with total_api_calls, error_count, replan_count."""
+        from src.orchestrator import TaskOrchestrator
+
+        plan_steps = [
+            {
+                "step_number": 1,
+                "action": "POST",
+                "endpoint": "/v2/employee",
+                "payload": {"firstName": "Ola", "lastName": "Nordmann"},
+                "params": None,
+                "description": "Create employee",
+            }
+        ]
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps({"steps": plan_steps})
+        mock_plan_openai.return_value.chat.completions.create.return_value = mock_response
+
+        responses.add(
+            responses.POST,
+            f"{TRIPLETEX_BASE}/v2/employee",
+            json={"value": {"id": 1, "firstName": "Ola", "lastName": "Nordmann"}},
+            status=201,
+        )
+
+        orchestrator = TaskOrchestrator(_make_settings())
+        with patch("src.orchestrator.logger") as mock_logger:
+            result = orchestrator.solve(_make_request())
+
+        assert result.status == "completed"
+        # Find the efficiency summary log call
+        efficiency_calls = [
+            call for call in mock_logger.info.call_args_list
+            if "Efficiency summary" in str(call)
+        ]
+        assert len(efficiency_calls) == 1
+        call_args = efficiency_calls[0]
+        assert "total_api_calls=" in call_args[0][0]
+        assert "error_count=" in call_args[0][0]
+        assert "replan_count=" in call_args[0][0]
+
+    @responses.activate
+    @patch("src.plan_generator.OpenAI")
+    @patch("src.file_processor.OpenAI")
     def test_orchestrator_creates_client_from_credentials(self, mock_file_openai, mock_plan_openai):
         """Verify TripletexClient is created from request credentials."""
         from src.orchestrator import TaskOrchestrator

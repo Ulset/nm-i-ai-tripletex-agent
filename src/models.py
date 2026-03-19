@@ -44,3 +44,5 @@ class ExecutionResult(BaseModel):
     results: list[dict] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     success: bool = False
+    total_api_calls: int = 0
+    error_count: int = 0

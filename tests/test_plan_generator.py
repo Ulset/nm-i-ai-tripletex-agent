@@ -196,6 +196,24 @@ class TestPlanGenerator:
         for lang in ["Norwegian Bokmal", "Norwegian Nynorsk", "English", "Spanish", "Portuguese", "German", "French"]:
             assert lang in system_msg
 
+    def test_system_prompt_has_efficiency_guidelines(self, mock_openai_cls):
+        plan_data = {"steps": []}
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_client.chat.completions.create.return_value = _make_openai_response(
+            plan_data
+        )
+
+        generator = PlanGenerator(openai_api_key="test-key")
+        generator.generate_plan("test")
+
+        call_args = mock_client.chat.completions.create.call_args
+        system_msg = call_args[1]["messages"][0]["content"]
+        assert "Reuse IDs from POST responses" in system_msg
+        assert "Never call GET" in system_msg or "never call GET" in system_msg.lower()
+        assert "batch" in system_msg.lower()
+        assert "Validate required fields" in system_msg
+
     def test_uses_json_response_format(self, mock_openai_cls):
         plan_data = {"steps": []}
         mock_client = MagicMock()

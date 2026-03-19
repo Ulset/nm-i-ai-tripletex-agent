@@ -13,12 +13,14 @@ PLACEHOLDER_RE = re.compile(r"\$step(\d+)\.(.+)")
 class PlanExecutor:
     def __init__(self, client: TripletexClient):
         self.client = client
+        self.replan_count = 0
 
     def execute(self, plan: ExecutionPlan) -> ExecutionResult:
         context: dict[int, dict] = {}
         results: list[dict] = []
         errors: list[str] = []
         steps_completed = 0
+        api_calls = 0
 
         for step in plan.steps:
             try:
@@ -37,27 +39,42 @@ class PlanExecutor:
                 else:
                     raise ValueError(f"Unknown action: {action}")
 
+                api_calls += 1
                 context[step.step_number] = result
                 results.append(result)
                 steps_completed += 1
                 logger.info("Step %d completed: %s %s", step.step_number, action, step.endpoint)
 
             except TripletexAPIError as e:
+                api_calls += 1
                 error_msg = f"Step {step.step_number} failed: {e}"
                 errors.append(error_msg)
                 logger.error(error_msg)
+                error_count = len(errors)
+                logger.info(
+                    "Execution stopped: total_api_calls=%d, error_count=%d",
+                    api_calls, error_count,
+                )
                 return ExecutionResult(
                     steps_completed=steps_completed,
                     results=results,
                     errors=errors,
                     success=False,
+                    total_api_calls=api_calls,
+                    error_count=error_count,
                 )
 
+        logger.info(
+            "Execution complete: total_api_calls=%d, error_count=%d",
+            api_calls, len(errors),
+        )
         return ExecutionResult(
             steps_completed=steps_completed,
             results=results,
             errors=errors,
             success=True,
+            total_api_calls=api_calls,
+            error_count=len(errors),
         )
 
     def execute_with_replan(
@@ -70,12 +87,14 @@ class PlanExecutor:
     ) -> ExecutionResult:
         """Execute a plan with automatic re-planning on failure."""
         result = self.execute(plan)
-        replans = 0
+        self.replan_count = 0
+        total_api_calls = result.total_api_calls
+        total_errors = result.error_count
 
-        while not result.success and replans < max_replans:
-            replans += 1
+        while not result.success and self.replan_count < max_replans:
+            self.replan_count += 1
             error_context = "\n".join(result.errors)
-            logger.info("Re-plan attempt %d/%d", replans, max_replans)
+            logger.info("Re-plan attempt %d/%d", self.replan_count, max_replans)
 
             new_plan = generator.replan(
                 original_prompt=original_prompt,
@@ -84,7 +103,11 @@ class PlanExecutor:
                 error_context=error_context,
             )
             result = self.execute(new_plan)
+            total_api_calls += result.total_api_calls
+            total_errors += result.error_count
 
+        result.total_api_calls = total_api_calls
+        result.error_count = total_errors
         return result
 
 

@@ -62,6 +62,12 @@ class TaskOrchestrator:
                 result.success,
                 duration,
             )
+            logger.info(
+                "Efficiency summary: total_api_calls=%d, error_count=%d, replan_count=%d",
+                result.total_api_calls,
+                result.error_count,
+                executor.replan_count,
+            )
 
         except Exception:
             duration = time.time() - start_time

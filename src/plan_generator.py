@@ -31,12 +31,13 @@ Respond ONLY with a valid JSON object matching this schema:
 Use $stepN.path.to.value to reference results from previous steps.
 Example: $step1.value.id refers to the id field from step 1's response.
 
-## Efficiency Guidelines
-- Reuse IDs from POST responses — do NOT call GET for entities you just created.
-- Minimize total API calls.
-- Validate required fields before generating calls.
-- Batch where possible.
-- Preserve Norwegian characters (ae, oe, aa) exactly as given.
+## Efficiency Guidelines (CRITICAL for scoring)
+- Reuse IDs from POST responses — do NOT call GET for entities you just created. The POST response contains the created entity with its ID.
+- Never call GET to look up an entity you just created in a previous step. Use $stepN.value.id placeholders instead.
+- Minimize total API calls — fewer calls = higher efficiency score.
+- Batch requests where Tripletex supports it (e.g., POST /v2/employee/list for multiple employees).
+- Validate required fields before generating calls — include all mandatory fields to avoid 4xx errors and costly re-plans.
+- Preserve Norwegian characters (æ, ø, å) exactly as given.
 """
 
 
