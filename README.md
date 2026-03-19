@@ -107,7 +107,7 @@ More complex tasks chain multiple API calls:
 | API Client | requests (sync) |
 | PDF Processing | PyMuPDF + OpenAI Vision API |
 | Deployment | Docker → Google Cloud Run |
-| Testing | pytest (93 unit/integration + e2e) |
+| Testing | pytest (107 unit/integration + e2e) |
 
 ---
 
@@ -175,6 +175,8 @@ gcloud run deploy tripletex-agent \
 **Why only 2 tools?** Simplicity. The LLM is remarkably good at figuring out multi-step workflows when given just `call_api` and `search_api_docs`. More tools would mean more confusion in the prompt, more edge cases, and slower iteration.
 
 **Why limit doc searches to 2 per task?** Production logs showed the agent sometimes spiraling into 9+ consecutive doc searches instead of just trying an API call. Capping at 2 forces it to rely on its built-in knowledge of common endpoints and only search when truly stuck.
+
+**Why auto-generate the system prompt from the OpenAPI spec?** Earlier versions had hand-written endpoint docs in the prompt that drifted from reality — e.g., claiming `POST /v2/invoice` takes `orderId` in the body when the real endpoint is `PUT /v2/order/{id}/:invoice` with query params. Now, field names are extracted from the live spec at startup, required markers come from a curated registry validated by tests, and 422 error hints include real schema fields. The spec is the single source of truth; the prompt just presents it.
 
 ---
 
