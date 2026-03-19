@@ -62,6 +62,9 @@ gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.serv
 - **GET returns** `{"values": [...]}`, **POST returns** `{"value": {...}}`
 - **Don't use `async def` for /solve** — blocks event loop with sync HTTP calls
 
+## Git Commits
+- **NEVER add Co-Authored-By lines** to commit messages — no Claude attribution in commits
+
 ## Running Tests
 ```bash
 python3 -m pytest --tb=short           # unit + integration (93 tests)
