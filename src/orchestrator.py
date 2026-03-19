@@ -1,3 +1,4 @@
+import json
 import logging
 import time
 
@@ -22,7 +23,11 @@ class TaskOrchestrator:
             logger.info("NEW TASK RECEIVED")
             logger.info("Full prompt:\n%s", request.prompt)
             logger.info("Files: %d attached", len(request.files))
+            for f in request.files:
+                logger.info("  File: %s (%s, %d bytes)", f.filename, f.mime_type, len(f.content_base64))
             logger.info("Base URL: %s", request.tripletex_credentials.base_url)
+            # Log the raw request for test case reproduction
+            logger.info("Raw request payload:\n%s", json.dumps(request.model_dump(), ensure_ascii=False, default=str)[:2000])
             logger.info("=" * 60)
 
             # 1) Process files

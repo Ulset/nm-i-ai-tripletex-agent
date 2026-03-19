@@ -22,13 +22,14 @@ TRIPLETEX_API_REFERENCE = """
 - To get a valid department.id, use GET /v2/department?fields=id&count=1 first.
 
 ### Customer
-- GET /v2/customer - List customers. Params: name, email, fields, count, from
-- POST /v2/customer - Create customer. Required: name. Optional: email, phoneNumber, postalAddress(addressLine1, postalCode, city), isCustomer(true)
+- GET /v2/customer - List customers. Params: name, email, organizationNumber, fields, count, from
+- POST /v2/customer - Create customer. Required: name. Optional: organizationNumber, email, invoiceEmail, phoneNumber, phoneNumberMobile, postalAddress(addressLine1, postalCode, city), physicalAddress, isCustomer(true), description, accountManager(id), bankAccountNumber, iban, supplierNumber, customerNumber
 - PUT /v2/customer/{id} - Update customer. Send full object with id.
 
 ### Supplier
 - GET /v2/supplier - List suppliers. Params: name, fields, count, from
-- POST /v2/supplier - Create supplier. Required: name. Optional: email, phoneNumber, postalAddress(addressLine1, postalCode, city), isSupplier(true)
+- POST /v2/supplier - Create supplier. Required: name. Optional: organizationNumber, email, invoiceEmail, phoneNumber, phoneNumberMobile, postalAddress(addressLine1, postalCode, city), physicalAddress, isSupplier(true), description, accountManager(id), bankAccountNumber, iban, supplierNumber
+- PUT /v2/supplier/{id} - Update supplier. Send full object with id.
 
 ### Product
 - GET /v2/product - List products. Params: name, number, fields, count, from

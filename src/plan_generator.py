@@ -41,6 +41,16 @@ IMPORTANT: "params" must be a JSON object (dict) or null, NEVER a query string. 
 Use $stepN.path.to.value to reference results from previous steps.
 Example: $step1.value.id refers to the id field from step 1's response.
 
+## CRITICAL: Include ALL Data From the Prompt
+- You MUST include EVERY piece of data mentioned in the task prompt as a field in the API payload.
+- If the prompt mentions an organization number, include "organizationNumber" in the payload.
+- If the prompt mentions an email, include "email" in the payload.
+- If the prompt mentions an address, include "postalAddress" with addressLine1, postalCode, city.
+- If the prompt mentions a phone number, include "phoneNumber" or "phoneNumberMobile".
+- If the prompt mentions any value, find the matching API field name and include it.
+- The Tripletex API accepts many fields beyond those listed in the reference above. Common additional fields include: organizationNumber, invoiceEmail, description, supplierNumber, customerNumber, phoneNumber, phoneNumberMobile, bankAccountNumber, iban, accountManager, isCustomer, isSupplier, isInactive, category1, category2, category3.
+- NEVER skip data from the prompt. Every value mentioned is being scored.
+
 ## Efficiency Guidelines (CRITICAL for scoring)
 - Reuse IDs from POST responses — do NOT call GET for entities you just created. The POST response contains the created entity with its ID.
 - Never call GET to look up an entity you just created in a previous step. Use $stepN.value.id placeholders instead.
