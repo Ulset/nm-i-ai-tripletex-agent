@@ -46,12 +46,15 @@ class TaskOrchestrator:
                 session_token=request.tripletex_credentials.session_token,
             )
             executor = PlanExecutor(client)
+            elapsed = time.time() - start_time
+            # Reserve 60s buffer for re-planning; cap replans based on time budget
+            max_replans = 2 if elapsed < 180 else (1 if elapsed < 240 else 0)
             result = executor.execute_with_replan(
                 plan=plan,
                 generator=generator,
                 original_prompt=request.prompt,
                 file_contents=file_contents if file_contents else None,
-                max_replans=2,
+                max_replans=max_replans,
             )
 
             duration = time.time() - start_time

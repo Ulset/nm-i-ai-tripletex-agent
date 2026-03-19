@@ -32,7 +32,7 @@ async def health():
 
 
 @app.post("/solve", response_model=SolveResponse)
-async def solve(request: SolveRequest, _: None = Depends(verify_api_key)):
+def solve(request: SolveRequest, _: None = Depends(verify_api_key)):
     orchestrator = TaskOrchestrator(settings)
     return orchestrator.solve(request)
 

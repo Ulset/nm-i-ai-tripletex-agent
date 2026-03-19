@@ -24,18 +24,19 @@ class PlanExecutor:
 
         for step in plan.steps:
             try:
+                endpoint = _resolve_placeholders(step.endpoint, context)
                 payload = _resolve_placeholders(step.payload, context) if step.payload else None
                 params = _resolve_placeholders(step.params, context) if step.params else None
 
                 action = step.action.upper()
                 if action == "GET":
-                    result = self.client.get(step.endpoint, params=params)
+                    result = self.client.get(endpoint, params=params)
                 elif action == "POST":
-                    result = self.client.post(step.endpoint, json=payload)
+                    result = self.client.post(endpoint, json=payload)
                 elif action == "PUT":
-                    result = self.client.put(step.endpoint, json=payload)
+                    result = self.client.put(endpoint, json=payload)
                 elif action == "DELETE":
-                    result = self.client.delete(step.endpoint)
+                    result = self.client.delete(endpoint)
                 else:
                     raise ValueError(f"Unknown action: {action}")
 
@@ -43,25 +44,32 @@ class PlanExecutor:
                 context[step.step_number] = result
                 results.append(result)
                 steps_completed += 1
-                logger.info("Step %d completed: %s %s", step.step_number, action, step.endpoint)
+                logger.info("Step %d completed: %s %s", step.step_number, action, endpoint)
 
             except TripletexAPIError as e:
                 api_calls += 1
                 error_msg = f"Step {step.step_number} failed: {e}"
                 errors.append(error_msg)
                 logger.error(error_msg)
-                error_count = len(errors)
-                logger.info(
-                    "Execution stopped: total_api_calls=%d, error_count=%d",
-                    api_calls, error_count,
-                )
                 return ExecutionResult(
                     steps_completed=steps_completed,
                     results=results,
                     errors=errors,
                     success=False,
                     total_api_calls=api_calls,
-                    error_count=error_count,
+                    error_count=len(errors),
+                )
+            except (KeyError, IndexError, ValueError) as e:
+                error_msg = f"Step {step.step_number} failed (resolution): {e}"
+                errors.append(error_msg)
+                logger.error(error_msg)
+                return ExecutionResult(
+                    steps_completed=steps_completed,
+                    results=results,
+                    errors=errors,
+                    success=False,
+                    total_api_calls=api_calls,
+                    error_count=len(errors),
                 )
 
         logger.info(
@@ -114,12 +122,18 @@ class PlanExecutor:
 def _resolve_placeholders(obj, context: dict[int, dict]):
     """Recursively resolve $stepN.path.to.value placeholders."""
     if isinstance(obj, str):
+        # Full-string match: return the actual typed value (int, dict, etc.)
         match = PLACEHOLDER_RE.fullmatch(obj)
         if match:
             step_num = int(match.group(1))
             path = match.group(2)
             return _traverse(context[step_num], path)
-        return obj
+        # Partial/embedded match: substitute within the string
+        def _replacer(m):
+            step_num = int(m.group(1))
+            path = m.group(2)
+            return str(_traverse(context[step_num], path))
+        return PLACEHOLDER_RE.sub(_replacer, obj)
     if isinstance(obj, dict):
         return {k: _resolve_placeholders(v, context) for k, v in obj.items()}
     if isinstance(obj, list):
