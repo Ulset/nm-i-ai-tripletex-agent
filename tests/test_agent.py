@@ -273,3 +273,146 @@ class TestSystemPrompt:
         assert "æ" in SYSTEM_PROMPT
         assert "ø" in SYSTEM_PROMPT
         assert "å" in SYSTEM_PROMPT
+
+
+class TestAgentLogging:
+    """Tests for US-005: Comprehensive logging verification."""
+
+    @patch("src.agent.OpenAI")
+    def test_logs_iteration_number(self, mock_openai_cls):
+        from src.agent import TripletexAgent
+
+        mock_openai = MagicMock()
+        mock_openai_cls.return_value = mock_openai
+        mock_openai.chat.completions.create.return_value = _make_text_response("Done")
+
+        agent = TripletexAgent(openai_api_key="k", model="m", tripletex_client=MagicMock())
+        with patch("src.agent.logger") as mock_logger:
+            agent.solve("test")
+
+        iteration_logs = [c for c in mock_logger.info.call_args_list if "iteration" in str(c).lower()]
+        assert len(iteration_logs) >= 1
+        # Verify the format args produce "1/15"
+        call_args = iteration_logs[0]
+        assert call_args[0][1] == 1  # iteration number
+        assert call_args[0][2] == 15  # max iterations
+
+    @patch("src.agent.OpenAI")
+    def test_logs_tool_call_details(self, mock_openai_cls):
+        from src.agent import TripletexAgent
+
+        mock_openai = MagicMock()
+        mock_openai_cls.return_value = mock_openai
+        mock_openai.chat.completions.create.side_effect = [
+            _make_tool_call_response("POST", "/v2/customer", body={"name": "Acme"}),
+            _make_text_response("Done"),
+        ]
+
+        client = MagicMock()
+        client.post.return_value = {"value": {"id": 1}}
+        agent = TripletexAgent(openai_api_key="k", model="m", tripletex_client=client)
+        with patch("src.agent.logger") as mock_logger:
+            agent.solve("test")
+
+        tool_logs = [str(c) for c in mock_logger.info.call_args_list if "Tool call" in str(c)]
+        assert len(tool_logs) == 1
+        assert "POST" in tool_logs[0]
+        assert "/v2/customer" in tool_logs[0]
+
+    @patch("src.agent.OpenAI")
+    def test_logs_api_response(self, mock_openai_cls):
+        from src.agent import TripletexAgent
+
+        mock_openai = MagicMock()
+        mock_openai_cls.return_value = mock_openai
+        mock_openai.chat.completions.create.side_effect = [
+            _make_tool_call_response("POST", "/v2/customer", body={"name": "Acme"}),
+            _make_text_response("Done"),
+        ]
+
+        client = MagicMock()
+        client.post.return_value = {"value": {"id": 1, "name": "Acme"}}
+        agent = TripletexAgent(openai_api_key="k", model="m", tripletex_client=client)
+        with patch("src.agent.logger") as mock_logger:
+            agent.solve("test")
+
+        response_logs = [str(c) for c in mock_logger.info.call_args_list if "API response" in str(c)]
+        assert len(response_logs) == 1
+
+    @patch("src.agent.OpenAI")
+    def test_logs_api_error(self, mock_openai_cls):
+        from src.agent import TripletexAgent
+
+        mock_openai = MagicMock()
+        mock_openai_cls.return_value = mock_openai
+        mock_openai.chat.completions.create.side_effect = [
+            _make_tool_call_response("POST", "/v2/employee", body={"firstName": "Ola"}),
+            _make_text_response("Failed"),
+        ]
+
+        client = MagicMock()
+        client.post.side_effect = TripletexAPIError(422, "Missing field")
+        agent = TripletexAgent(openai_api_key="k", model="m", tripletex_client=client)
+        with patch("src.agent.logger") as mock_logger:
+            agent.solve("test")
+
+        error_logs = [str(c) for c in mock_logger.warning.call_args_list if "API error" in str(c)]
+        assert len(error_logs) == 1
+
+    @patch("src.agent.OpenAI")
+    def test_logs_agent_done(self, mock_openai_cls):
+        from src.agent import TripletexAgent
+
+        mock_openai = MagicMock()
+        mock_openai_cls.return_value = mock_openai
+        mock_openai.chat.completions.create.return_value = _make_text_response("Task complete!")
+
+        agent = TripletexAgent(openai_api_key="k", model="m", tripletex_client=MagicMock())
+        with patch("src.agent.logger") as mock_logger:
+            agent.solve("test")
+
+        done_logs = [str(c) for c in mock_logger.info.call_args_list if "Agent done" in str(c)]
+        assert len(done_logs) == 1
+        assert "Task complete!" in done_logs[0]
+
+    @patch("src.agent.OpenAI")
+    def test_logs_max_iterations_reached(self, mock_openai_cls):
+        from src.agent import TripletexAgent
+
+        mock_openai = MagicMock()
+        mock_openai_cls.return_value = mock_openai
+        mock_openai.chat.completions.create.return_value = _make_tool_call_response(
+            "GET", "/v2/customer", params={"name": "loop"}
+        )
+
+        client = MagicMock()
+        client.get.return_value = {"values": []}
+        agent = TripletexAgent(openai_api_key="k", model="m", tripletex_client=client)
+        with patch("src.agent.logger") as mock_logger:
+            agent.solve("test")
+
+        warning_logs = [str(c) for c in mock_logger.warning.call_args_list if "max iterations" in str(c)]
+        assert len(warning_logs) == 1
+
+    @patch("src.agent.OpenAI")
+    def test_logs_summary_with_counts_and_duration(self, mock_openai_cls):
+        from src.agent import TripletexAgent
+
+        mock_openai = MagicMock()
+        mock_openai_cls.return_value = mock_openai
+        mock_openai.chat.completions.create.side_effect = [
+            _make_tool_call_response("POST", "/v2/customer", body={"name": "A"}),
+            _make_text_response("Done"),
+        ]
+
+        client = MagicMock()
+        client.post.return_value = {"value": {"id": 1}}
+        agent = TripletexAgent(openai_api_key="k", model="m", tripletex_client=client)
+        with patch("src.agent.logger") as mock_logger:
+            agent.solve("test")
+
+        summary_logs = [str(c) for c in mock_logger.info.call_args_list if "Agent summary" in str(c)]
+        assert len(summary_logs) == 1
+        assert "api_calls=" in summary_logs[0]
+        assert "errors=" in summary_logs[0]
+        assert "duration=" in summary_logs[0]
