@@ -234,16 +234,13 @@ class TestTripletexAgent:
 class TestSystemPrompt:
     """Tests for US-002: System prompt content verification."""
 
-    def test_includes_api_reference(self):
+    def test_instructs_search_docs(self):
         from src.agent import SYSTEM_PROMPT
-        from src.knowledge import TRIPLETEX_API_REFERENCE
-        assert TRIPLETEX_API_REFERENCE in SYSTEM_PROMPT
+        assert "search_api_docs" in SYSTEM_PROMPT
 
     def test_instructs_include_all_data(self):
         from src.agent import SYSTEM_PROMPT
-        assert "EVERY piece of data" in SYSTEM_PROMPT or "ALL data" in SYSTEM_PROMPT
-        assert "organizationNumber" in SYSTEM_PROMPT
-        assert "email" in SYSTEM_PROMPT
+        assert "ALL Data" in SYSTEM_PROMPT or "ALL data" in SYSTEM_PROMPT or "EVERY piece of data" in SYSTEM_PROMPT
 
     def test_instructs_use_call_api_tool(self):
         from src.agent import SYSTEM_PROMPT

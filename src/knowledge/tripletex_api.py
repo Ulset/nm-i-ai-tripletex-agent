@@ -17,9 +17,15 @@ TRIPLETEX_API_REFERENCE = """
 
 ### Employee
 - GET /v2/employee - List employees. Params: firstName, lastName, email, fields, count, from
-- POST /v2/employee - Create employee. Required: firstName, lastName, userType ("STANDARD"), email, department(id). Optional: phoneNumberMobile, dateOfBirth, employments(list). NOTE: userType, email, and department.id are REQUIRED — omitting them causes 422 validation errors.
+- POST /v2/employee - Create employee. Required: firstName, lastName, userType ("STANDARD"), email, department(id). Optional: phoneNumberMobile, dateOfBirth. NOTE: userType, email, and department.id are REQUIRED — omitting them causes 422 validation errors.
 - PUT /v2/employee/{id} - Update employee. Send full object with id.
 - To get a valid department.id, use GET /v2/department?fields=id&count=1 first.
+
+### Employee Employment (start date, job details)
+- POST /v2/employee/employment - Create employment for an employee. Use this to set start date. Required: employee(id), startDate (YYYY-MM-DD). Optional: endDate, employmentType, percentageOfFullTimeEquivalent, jobTitle.
+- GET /v2/employee/employment - List employments. Params: employeeId, fields, count, from
+- PUT /v2/employee/employment/{id} - Update employment.
+- IMPORTANT: Employment is a SEPARATE entity from the employee. First POST /v2/employee, then POST /v2/employee/employment with employee(id) and startDate.
 
 ### Customer
 - GET /v2/customer - List customers. Params: name, email, organizationNumber, fields, count, from
