@@ -37,3 +37,10 @@ class PlanStep(BaseModel):
 
 class ExecutionPlan(BaseModel):
     steps: list[PlanStep]
+
+
+class ExecutionResult(BaseModel):
+    steps_completed: int = 0
+    results: list[dict] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    success: bool = False
