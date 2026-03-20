@@ -32,7 +32,7 @@ B. EMPLOYEE [2-3 calls]: (1) GET /v2/department?fields=id&count=1 → deptId. (2
 
 C. CUSTOMER/SUPPLIER [1 call]: POST /v2/customer {name, isCustomer:true, ...all fields} or POST /v2/supplier {name, isSupplier:true, ...all fields}. Include organizationNumber, email, phoneNumber, postalAddress, physicalAddress as given.
 
-D. PROJECT [3-4 calls]: (1) GET /v2/employee?email=X → managerId. (2) If customer: GET /v2/customer?organizationNumber=X → custId. (3) POST /v2/project {name, projectManager:{id}, startDate, customer:{id}}. Do NOT set "number" — auto-generated. Fixed price: add isFixedPrice:true, fixedprice:amount (lowercase "fixedprice", NOT "fixedPriceAmount"). (4) To invoice partial: GET /v2/ledger/account?isBankAccount=true → PUT bankAccountNumber, POST /v2/product, POST /v2/order with orderLines (unitPriceExcludingVatCurrency=partial amount), PUT /v2/order/{id}/:invoice?invoiceDate=YYYY-MM-DD.
+D. PROJECT [3-4 calls]: (1) GET /v2/employee?email=X → managerId. (2) If customer: GET /v2/customer?organizationNumber=X → custId. (3) POST /v2/project {name, projectManager:{id}, startDate, customer:{id}}. Do NOT set "number" — auto-generated. Fixed price: add isFixedPrice:true, fixedprice:amount (lowercase "fixedprice", NOT "fixedPriceAmount"). (4) To invoice partial: GET /v2/ledger/account?isBankAccount=true → PUT with bankAccountNumber:"12345678903" (11 digits), POST /v2/product, POST /v2/order with orderLines (unitPriceExcludingVatCurrency=partial amount), PUT /v2/order/{id}/:invoice?invoiceDate=YYYY-MM-DD.
 
 E. PRODUCT [1-2 calls]: (1) If VAT mentioned: GET /v2/ledger/vatType → find match. (2) POST /v2/product {name, number, priceExcludingVatCurrency, vatType:{id}}.
 
@@ -48,9 +48,16 @@ I. VOUCHER [3-8 calls]: (1) GET /v2/ledger/account?number=XXXX for each account.
 
 J. CORRECTIONS [2-4 calls]: CREDIT NOTE (invoice is wrong): GET /v2/invoice → PUT /v2/invoice/{id}/:createCreditNote?date=YYYY-MM-DD (date >= invoiceDate). PAYMENT REVERSAL (bank returned payment): GET /v2/customer → GET /v2/invoice → GET /v2/ledger/voucher?dateFrom=2000-01-01&dateTo=2030-12-31 → DELETE /v2/ledger/voucher/{id}. Use DELETE voucher, NOT createCreditNote.
 
-K. TIMESHEET [4-14 calls]: (1) GET /v2/employee?email=X. (2) GET /v2/project → projectId, note startDate and customer. (3) GET /v2/activity?name=X or POST /v2/activity {name, isProjectActivity:true, isChargeable:true}. (4) POST /v2/timesheet/entry {employee:{id}, project:{id}, activity:{id}, date (use project startDate, not past date), hours, hourlyRate}. If task says to invoice: (5) GET /v2/ledger/account?isBankAccount=true → PUT bankAccountNumber. (6) POST /v2/product. (7) POST /v2/order {customer:{id}, project:{id}, orderLines:[{product:{id}, count, unitPriceExcludingVatCurrency}]}. (8) PUT /v2/order/{id}/:invoice?invoiceDate=YYYY-MM-DD. Do NOT stop after creating the product — you must also create the order and invoice.
+K. TIMESHEET [4-14 calls]: (1) GET /v2/employee?email=X. (2) GET /v2/project → projectId, note startDate and customer. (3) GET /v2/activity?name=X or POST /v2/activity {name, isProjectActivity:true, isChargeable:true}. (4) POST /v2/timesheet/entry {employee:{id}, project:{id}, activity:{id}, date (use project startDate, not past date), hours, hourlyRate}. If task says to invoice: (5) GET /v2/ledger/account?isBankAccount=true → PUT with bankAccountNumber:"12345678903" (MUST be 11 digits). (6) POST /v2/product. (7) POST /v2/order {customer:{id}, project:{id}, orderLines:[{product:{id}, count, unitPriceExcludingVatCurrency}]}. (8) PUT /v2/order/{id}/:invoice?invoiceDate=YYYY-MM-DD. CRITICAL: steps 5-8 must ALL be done. Set up bank BEFORE invoice.
 
-L. PAYROLL [3 calls]: (1) GET /v2/employee?email=X. (2) GET /v2/salary/type → salary type IDs. (3) POST /v2/salary/transaction {date, year, month, payslips:[{employee:{id}, date, year, month, specifications:[{salaryType:{id}, amount, rate, count:1}]}]}. Do NOT use vouchers for payroll.
+L. PAYROLL [3-8 calls]: Prerequisites: employee needs dateOfBirth, employment, and employment must have a division.
+  (1) GET /v2/employee?email=X → check if dateOfBirth is set. If not: PUT /v2/employee/{id} with dateOfBirth (use prompt value or "1990-01-01").
+  (2) Check employment: if employee has no employment, create one. POST /v2/employee/employment {employee:{id}, startDate}. Employment needs a division — if none exists: GET /v2/municipality?count=1 → POST /v2/division {name, displayName, organizationNumber:"987654321", startDate:"2026-01-01", municipality:{id}, municipalityDate:"2026-01-01"} → PUT /v2/employee/employment/{id} {division:{id}}.
+  (3) GET /v2/salary/type → find salary type IDs (e.g. "Fastlønn" for base salary, "Bonus" for bonus).
+  (4) POST /v2/salary/transaction {date, year, month, payslips:[{employee:{id}, date, year, month, specifications:[{salaryType:{id}, amount, rate, count:1}]}]}. MUST include year field. Use fiscal year 2026. Do NOT use vouchers for payroll.
+
+## Action
+You MUST use call_api to complete the task. Start immediately — identify the matching recipe, then make the first API call. Never respond with only text.
 """
 
 

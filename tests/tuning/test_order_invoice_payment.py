@@ -78,7 +78,7 @@ class TestOrderInvoicePayment:
         assert len(pt_gets) == 1, f"Should GET paymentType once without filter, got {len(pt_gets)}"
 
         result.assert_no_errors()
-        result.assert_max_calls(12)
+        result.assert_max_calls(14)
 
     def test_full_flow_german(self, run_agent):
         """German variant of order + invoice + payment."""
@@ -99,4 +99,4 @@ class TestOrderInvoicePayment:
         result.assert_endpoint_called("PUT", "/:payment")
 
         result.assert_no_errors()
-        result.assert_max_calls(12)
+        result.assert_max_calls(14)

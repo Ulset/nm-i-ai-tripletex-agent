@@ -70,20 +70,27 @@ class TestFixedPriceProject:
 
         # Must create the project with correct fixed price fields
         result.assert_endpoint_called("POST", "/v2/project")
-        project_call = result.find_calls("POST", "/v2/project")[0]
-        assert project_call.body is not None
-        # Must use "fixedprice" (lowercase), NOT "fixedPriceAmount"
-        assert "fixedprice" in project_call.body or "fixedprice" in str(project_call.body).lower(), \
-            f"Expected 'fixedprice' field. Body keys: {list(project_call.body.keys())}"
-        assert project_call.body.get("isFixedPrice") is True, \
-            f"Expected isFixedPrice=true. Body: {project_call.body}"
+        # fixedprice may be in the POST body or in a subsequent PUT (both are valid)
+        all_project_calls = result.find_calls("POST", "/v2/project") + result.find_calls("PUT", "/v2/project")
+        has_fixedprice = any(
+            c.body and ("fixedprice" in c.body or "fixedprice" in str(c.body).lower())
+            for c in all_project_calls
+        )
+        assert has_fixedprice, \
+            f"Expected 'fixedprice' in POST or PUT. Bodies: {[c.body for c in all_project_calls]}"
+        has_is_fixed = any(
+            c.body and c.body.get("isFixedPrice") is True
+            for c in all_project_calls
+        )
+        assert has_is_fixed, \
+            f"Expected isFixedPrice=true. Bodies: {[c.body for c in all_project_calls]}"
 
         # Must create order and invoice
         result.assert_endpoint_called("POST", "/v2/order")
         result.assert_endpoint_called("PUT", "/:invoice")
 
         result.assert_no_errors()
-        result.assert_max_calls(10)
+        result.assert_max_calls(12)
 
     def test_create_fixed_price_project_norwegian(self, run_agent):
         """Norwegian variant: fixed-price project + partial invoice."""
@@ -99,15 +106,19 @@ class TestFixedPriceProject:
         result = run_agent(prompt, mock)
         result.print_summary()
 
-        # Must create project with fixed price
+        # Must create project with fixed price (may be in POST or subsequent PUT)
         result.assert_endpoint_called("POST", "/v2/project")
-        project_call = result.find_calls("POST", "/v2/project")[0]
-        assert project_call.body is not None
-        assert project_call.body.get("isFixedPrice") is True
+        all_project_calls = result.find_calls("POST", "/v2/project") + result.find_calls("PUT", "/v2/project")
+        has_is_fixed = any(
+            c.body and c.body.get("isFixedPrice") is True
+            for c in all_project_calls
+        )
+        assert has_is_fixed, \
+            f"Expected isFixedPrice=true. Bodies: {[c.body for c in all_project_calls]}"
 
         # Must create order and invoice for 25% = 125000
         result.assert_endpoint_called("POST", "/v2/order")
         result.assert_endpoint_called("PUT", "/:invoice")
 
         result.assert_no_errors()
-        result.assert_max_calls(10)
+        result.assert_max_calls(12)

@@ -114,7 +114,7 @@ class TestSimpleVoucher:
 
         prompt = (
             "Post a journal entry (voucher) on account 6340 for 18500 NOK "
-            "dated 2023-11-15 with description 'Office heating Q4'."
+            "dated 2026-01-15 with description 'Office heating Q4'."
         )
 
         result = run_agent(prompt, mock)
