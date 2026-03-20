@@ -1,5 +1,24 @@
 # Tripletex AI Agent — NM i AI 2026
 
+## Knowledge Base
+The `knowledge/` directory (gitignored) contains essential context that persists across conversations:
+- `architecture.md` — system architecture, request flow, file map
+- `recipes.md` — all 12 recipes, gotchas per recipe
+- `decisions.md` — key design decisions with rationale
+- `production-failures.md` — every production failure with root cause and fix
+- `current-state.md` — latest deployment, what changed, known issues
+- `scoring-and-strategy.md` — scoring formula, competition strategy
+- `testing.md` — how to run tests, conftest pattern
+- `tripletex-api-gotchas.md` — API quirks discovered from debugging
+- `deployment-history.md` — all revisions, deploy/log commands
+- `next-improvements.md` — prioritized backlog
+
+**IMPORTANT**: Keep these files updated after every significant change:
+- After deploying: update `current-state.md` and `deployment-history.md`
+- After fixing a production failure: update `production-failures.md` and the relevant recipe in `recipes.md`
+- After making a design decision: update `decisions.md`
+- After discovering an API gotcha: update `tripletex-api-gotchas.md`
+
 ## Competition
 - **Task**: Build an AI agent that completes accounting tasks in Tripletex
 - **30 task types**, 56 variants each (7 languages × 8 data sets)
