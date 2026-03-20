@@ -24,6 +24,14 @@ def _make_payroll_mock() -> MockTripletexClient:
         "dateOfBirth": "1990-05-15",
     })
 
+    # Employment exists (so agent doesn't need to create one)
+    mock.register_entity("employee/employment", {
+        "id": 500,
+        "employee": {"id": 100},
+        "startDate": "2025-01-01",
+        "division": {"id": 1},
+    })
+
     # Salary types
     mock.register_entity("salary/type", {
         "id": 200,
@@ -68,7 +76,7 @@ class TestPayroll:
             f"Must include 'year' in salary/transaction. Keys: {list(tx_call.body.keys())}"
 
         result.assert_no_errors()
-        result.assert_max_calls(10)
+        result.assert_max_calls(7)
 
     def test_payroll_norwegian(self, run_agent):
         """Norwegian: register salary."""
@@ -85,4 +93,4 @@ class TestPayroll:
 
         result.assert_endpoint_called("POST", "/v2/salary/transaction")
         result.assert_no_errors()
-        result.assert_max_calls(10)
+        result.assert_max_calls(7)
