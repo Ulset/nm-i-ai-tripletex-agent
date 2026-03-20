@@ -303,5 +303,15 @@ class MockTripletexClient:
             self._record("DELETE", endpoint, None, None, response, None)
             return response
 
+        # Remove entity from store so subsequent GETs reflect the deletion
+        ep = _normalize_endpoint(endpoint)
+        parts = ep.rsplit("/", 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            base, entity_id = parts[0], int(parts[1])
+            if base in self._entities:
+                self._entities[base] = [
+                    e for e in self._entities[base] if e.get("id") != entity_id
+                ]
+
         self._record("DELETE", endpoint, None, None, {}, None)
         return {}

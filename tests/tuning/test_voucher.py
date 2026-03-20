@@ -60,6 +60,11 @@ def _make_supplier_invoice_mock() -> MockTripletexClient:
         "number": "1",
         "percentage": 25.0,
     })
+    mock.register_entity("ledger/voucherType", {
+        "id": 500,
+        "name": "Leverandørfaktura",
+        "displayName": "Leverandørfaktura",
+    })
 
     return mock
 
@@ -195,8 +200,11 @@ class TestSupplierInvoice:
         )
         assert has_invoice_ref, "Should reference invoice number INV-2026-8662"
 
+        assert body.get("voucherType"), \
+            "Must set voucherType to 'Leverandørfaktura' for supplier invoices"
+
         result.assert_no_errors()
-        result.assert_max_calls(7)
+        result.assert_max_calls(8)
 
     def test_supplier_invoice_english(self, run_agent):
         """English variant: register supplier invoice."""
@@ -212,6 +220,8 @@ class TestSupplierInvoice:
         result = run_agent(prompt, mock)
         result.print_summary()
 
-        result.assert_endpoint_called("POST", "/v2/ledger/voucher")
+        voucher_call = result.assert_endpoint_called("POST", "/v2/ledger/voucher")
+        assert voucher_call.body.get("voucherType"), \
+            "Must set voucherType to 'Leverandørfaktura' for supplier invoices"
         result.assert_no_errors()
-        result.assert_max_calls(7)
+        result.assert_max_calls(8)

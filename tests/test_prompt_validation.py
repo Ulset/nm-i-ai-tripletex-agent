@@ -13,12 +13,14 @@ import requests
 
 from src.api_docs import (
     ENDPOINT_REGISTRY,
+    RECIPE_ENDPOINTS,
     _get_request_body_schema,
     _get_response_schema,
     _load_spec,
     _resolve_ref,
     generate_endpoint_reference,
     get_endpoint_schema,
+    get_recipe_schemas,
     search_api_docs,
 )
 
@@ -173,3 +175,56 @@ class TestGenerateEndpointReference:
             ref = generate_endpoint_reference()
             assert "POST /v2/employee" in ref
             assert "firstName" in ref
+
+
+class TestGetRecipeSchemas:
+    """Tests for proactive schema injection via get_recipe_schemas()."""
+
+    def test_recipe_h_contains_location(self):
+        """Recipe H (travel expense) schema must include 'location' field."""
+        result = get_recipe_schemas("RECIPE: H (TRAVEL EXPENSE)")
+        assert result, "get_recipe_schemas returned empty for RECIPE H"
+        assert "location" in result, "Schema for Recipe H missing 'location' field"
+
+    def test_recipe_b_contains_employee_fields(self):
+        """Recipe B (employee) schema must include core employee fields."""
+        result = get_recipe_schemas("RECIPE: B (EMPLOYEE)")
+        assert "firstName" in result
+        assert "lastName" in result
+        assert "email" in result
+
+    def test_recipe_i_contains_voucher_fields(self):
+        """Recipe I (voucher) schema must include posting-related fields."""
+        result = get_recipe_schemas("RECIPE: I (VOUCHER)")
+        assert "amountGross" in result or "postings" in result
+
+    def test_all_recipe_letters_valid(self):
+        """Every recipe letter in RECIPE_ENDPOINTS should produce a result or empty string."""
+        for letter in RECIPE_ENDPOINTS:
+            result = get_recipe_schemas(f"RECIPE: {letter}")
+            assert isinstance(result, str), f"Recipe {letter} returned non-string"
+
+    def test_recipes_with_endpoints_produce_output(self):
+        """Recipes that have POST/PUT endpoints should produce non-empty schema text."""
+        for letter, endpoints in RECIPE_ENDPOINTS.items():
+            if endpoints:  # G and J have empty lists
+                result = get_recipe_schemas(f"RECIPE: {letter}")
+                assert result, f"Recipe {letter} has endpoints but returned empty schema"
+
+    def test_empty_recipes_return_empty(self):
+        """Recipes G and J have no body endpoints — should return empty string."""
+        assert get_recipe_schemas("RECIPE: G") == ""
+        assert get_recipe_schemas("RECIPE: J") == ""
+
+    def test_no_recipe_returns_empty(self):
+        """If no recipe letter found, return empty string."""
+        assert get_recipe_schemas("Some random text without a recipe") == ""
+
+    def test_schema_size_reasonable(self):
+        """Schema blocks should be concise (under 3000 chars per recipe)."""
+        for letter, endpoints in RECIPE_ENDPOINTS.items():
+            if endpoints:
+                result = get_recipe_schemas(f"RECIPE: {letter}")
+                assert len(result) < 5000, (
+                    f"Recipe {letter} schema too large: {len(result)} chars"
+                )

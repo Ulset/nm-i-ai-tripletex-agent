@@ -254,8 +254,9 @@ class TestSystemPrompt:
         assert "Reuse" in p or "reuse" in p or "NEVER GET after" in p
 
     def test_handles_all_seven_languages(self):
-        p = self._prompt()
-        assert "nb" in p and "en" in p and "es" in p and "de" in p and "fr" in p
+        from src.agent import _PRE_PARSE_PROMPT
+        # Language handling is in the pre-parse prompt, not the system prompt
+        assert "nb" in _PRE_PARSE_PROMPT and "en" in _PRE_PARSE_PROMPT and "es" in _PRE_PARSE_PROMPT
 
     def test_preserves_norwegian_characters(self):
         p = self._prompt()

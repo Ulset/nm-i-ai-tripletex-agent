@@ -11,7 +11,11 @@ from tests.tuning.mock_client import MockTripletexClient
 
 
 def _make_payment_reversal_mock() -> MockTripletexClient:
-    """Set up mock with customer, invoice, and payment voucher."""
+    """Set up mock with customer, invoice, and multiple vouchers.
+
+    Registers an invoice voucher (should NOT be deleted) and a payment voucher
+    (SHOULD be deleted) to force the agent to distinguish between types.
+    """
     mock = MockTripletexClient()
 
     mock.register_entity("customer", {
@@ -27,14 +31,33 @@ def _make_payment_reversal_mock() -> MockTripletexClient:
         "amountOutstanding": 0,
         "amount": 50687.5,
     })
+    # Invoice voucher — should NOT be deleted
     mock.register_entity("ledger/voucher", {
         "id": 300,
+        "date": "2026-03-01",
+        "number": 1,
+        "description": "Faktura 1 til Solmar SL",
+    })
+    # Payment voucher — SHOULD be deleted
+    mock.register_entity("ledger/voucher", {
+        "id": 301,
         "date": "2026-03-15",
         "number": 2,
-        "description": "Payment",
+        "description": "Betaling: Faktura nummer 1 til Solmar SL (10001)",
     })
 
     return mock
+
+
+def _assert_payment_voucher_deleted(result):
+    """Assert agent deleted payment voucher(s) but NOT the invoice voucher."""
+    delete_calls = result.find_calls("DELETE", "/v2/ledger/voucher")
+    assert len(delete_calls) >= 1, "Must delete at least one payment voucher"
+
+    # Should not delete the invoice voucher (id=300)
+    for call in delete_calls:
+        assert "/300" not in call.endpoint, \
+            "Should NOT delete the invoice voucher (id=300)"
 
 
 @skip_no_vertex
@@ -56,13 +79,14 @@ class TestPaymentReversal:
 
         # Must DELETE the payment voucher, NOT createCreditNote
         result.assert_endpoint_called("DELETE", "/v2/ledger/voucher")
+        _assert_payment_voucher_deleted(result)
 
         credit_note_calls = result.find_calls("PUT", "/:createCreditNote")
         assert len(credit_note_calls) == 0, \
             "Should NOT use createCreditNote for payment reversals"
 
         result.assert_no_errors()
-        result.assert_max_calls(5)
+        result.assert_max_calls(6)
 
     def test_payment_reversal_french(self, run_agent):
         """French variant: cancel returned payment."""
@@ -78,8 +102,9 @@ class TestPaymentReversal:
         result.print_summary()
 
         result.assert_endpoint_called("DELETE", "/v2/ledger/voucher")
+        _assert_payment_voucher_deleted(result)
         result.assert_no_errors()
-        result.assert_max_calls(5)
+        result.assert_max_calls(6)
 
     def test_payment_reversal_english(self, run_agent):
         """English variant."""
@@ -95,5 +120,24 @@ class TestPaymentReversal:
         result.print_summary()
 
         result.assert_endpoint_called("DELETE", "/v2/ledger/voucher")
+        _assert_payment_voucher_deleted(result)
         result.assert_no_errors()
-        result.assert_max_calls(5)
+        result.assert_max_calls(6)
+
+    def test_payment_reversal_nynorsk(self, run_agent):
+        """Exact production prompt that scored 4/8."""
+        mock = _make_payment_reversal_mock()
+
+        prompt = (
+            'Betalinga frå Strandvik AS (org.nr 840739201) for fakturaen "Horas de consultoría" '
+            "(40550 NOK ekskl. MVA) vart returnert av banken. Reverser betalinga slik at "
+            "fakturaen igjen viser uteståande beløp."
+        )
+
+        result = run_agent(prompt, mock)
+        result.print_summary()
+
+        result.assert_endpoint_called("DELETE", "/v2/ledger/voucher")
+        _assert_payment_voucher_deleted(result)
+        result.assert_no_errors()
+        result.assert_max_calls(6)

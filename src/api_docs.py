@@ -74,6 +74,144 @@ ENDPOINT_REGISTRY = [
 ]
 
 
+# Mapping from recipe letter → list of (method, spec_path) for POST/PUT endpoints with body schemas.
+# Used to proactively inject OpenAPI schemas before the agent makes calls.
+RECIPE_ENDPOINTS = {
+    'A': [('POST', '/department')],
+    'B': [('POST', '/employee'), ('POST', '/employee/employment')],
+    'C': [('POST', '/customer'), ('POST', '/supplier')],
+    'D': [('POST', '/project'), ('POST', '/order')],
+    'E': [('POST', '/product')],
+    'F': [('POST', '/product'), ('POST', '/order')],
+    'G': [],  # PUT with query params only
+    'H': [('POST', '/travelExpense'), ('POST', '/travelExpense/cost'),
+           ('POST', '/travelExpense/accommodationAllowance'),
+           ('POST', '/travelExpense/perDiemCompensation')],
+    'I': [('POST', '/ledger/voucher'), ('POST', '/ledger/accountingDimensionName'),
+           ('POST', '/ledger/accountingDimensionValue')],
+    'J': [],  # DELETE + PUT with query params
+    'K': [('POST', '/timesheet/entry'), ('POST', '/activity'), ('POST', '/product'), ('POST', '/order')],
+    'L': [('POST', '/employee/employment'), ('POST', '/division'),
+           ('POST', '/salary/transaction')],
+}
+
+
+# Fields that are read-only, system-generated, or meta — never useful in POST/PUT bodies.
+_SKIP_FIELDS = frozenset({
+    "id", "version", "url", "changes", "displayName", "displayNumber",
+    "nameAndNumber", "numberAsString", "wasAutoMatched",
+})
+
+
+def _extract_compact_fields(spec: dict, schema: dict) -> tuple[list[str], list[str]]:
+    """Extract field names from schema as compact strings.
+
+    Returns (required_fields, optional_fields) where each entry is:
+    - "name" for primitives
+    - "name:{id}" for object refs (the common pattern)
+    - "name:[TypeName]" for arrays
+    """
+    if "$ref" in schema:
+        schema = _resolve_ref(spec, schema["$ref"])
+
+    props = schema.get("properties", {})
+    required = set(schema.get("required", []))
+    req_fields = []
+    opt_fields = []
+
+    for name, prop in props.items():
+        if name in _SKIP_FIELDS:
+            continue
+
+        actual = prop
+        if "$ref" in prop:
+            actual = _resolve_ref(spec, prop["$ref"])
+
+        type_str = actual.get("type", "object")
+
+        if type_str == "object" or "$ref" in prop:
+            entry = f"{name}:{{id}}"
+        elif type_str == "array":
+            items = actual.get("items", {})
+            if "$ref" in items:
+                item_name = items["$ref"].split("/")[-1]
+                entry = f"{name}:[{item_name}]"
+            else:
+                entry = f"{name}:[]"
+        else:
+            entry = name
+
+        if name in required:
+            req_fields.append(entry)
+        else:
+            opt_fields.append(entry)
+
+    return req_fields, opt_fields
+
+
+def _get_compact_endpoint_schema(method: str, spec_path: str) -> str | None:
+    """Get a compact one-line schema for an endpoint.
+
+    Example: "POST /v2/ledger/voucher — req: date, description | opt: voucherType:{id}, postings:[Posting], vendorInvoiceNumber"
+    """
+    try:
+        spec = _load_spec()
+    except Exception:
+        return None
+
+    path_info = spec.get("paths", {}).get(spec_path, {})
+    method_info = path_info.get(method.lower())
+    if not method_info:
+        return None
+
+    body_schema = _get_request_body_schema(method_info)
+    if not body_schema:
+        return None
+
+    req_fields, opt_fields = _extract_compact_fields(spec, body_schema)
+    if not req_fields and not opt_fields:
+        return None
+
+    parts = [f"{method.upper()} /v2{spec_path}"]
+    if req_fields:
+        parts.append(f"req: {', '.join(req_fields)}")
+    max_opt = 20
+    if opt_fields:
+        shown = opt_fields[:max_opt]
+        parts.append(f"opt: {', '.join(shown)}")
+        if len(opt_fields) > max_opt:
+            parts[-1] += f" (+{len(opt_fields) - max_opt} more, use search_api_docs)"
+
+    return " — ".join(parts)
+
+
+def get_recipe_schemas(parsed_plan: str) -> str:
+    """Extract recipe letter from parsed plan and return compact OpenAPI schemas.
+
+    Returns a terse block with one line per endpoint showing required and optional fields.
+    """
+    import re
+    match = re.search(r'RECIPE:\s*([A-L])', parsed_plan)
+    if not match:
+        return ""
+
+    letter = match.group(1)
+    endpoints = RECIPE_ENDPOINTS.get(letter, [])
+    if not endpoints:
+        return ""
+
+    lines = []
+    for method, spec_path in endpoints:
+        line = _get_compact_endpoint_schema(method, spec_path)
+        if line:
+            lines.append(line)
+
+    if not lines:
+        return ""
+
+    return "## API fields (from OpenAPI spec):\n" + "\n".join(lines)
+
+
 @lru_cache(maxsize=1)
 def _load_spec() -> dict:
     """Fetch and cache the OpenAPI spec."""
