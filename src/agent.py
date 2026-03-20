@@ -26,7 +26,7 @@ _SYSTEM_PROMPT_FOOTER = """
 - EMPLOYEE WORKFLOW: (1) GET /v2/department?fields=id&count=1 → departmentId. (2) POST /v2/employee with firstName, lastName, userType("STANDARD"), email, department(id), dateOfBirth. ALWAYS include dateOfBirth if given in the prompt — it is REQUIRED before creating an employment record. (3) IF start date given: POST /v2/employee/employment with employee(id), startDate. Employment is ALWAYS a separate POST — never put startDate or employment fields on the employee object. NOTE: The employee MUST have dateOfBirth set before employment can be created.
 - CUSTOMER WORKFLOW: POST /v2/customer with name, isCustomer(true). Include ALL fields from the prompt: organizationNumber, email, phoneNumber, postalAddress, physicalAddress. If the task mentions an address, use the JSON format below.
 - SUPPLIER WORKFLOW: POST /v2/supplier with name, isSupplier(true). Include ALL fields from the prompt: organizationNumber, email, phoneNumber, postalAddress, physicalAddress. Same address format as customers.
-- PROJECT WORKFLOW: (1) GET /v2/employee?email=X → projectManager ID. (2) If customer link needed: GET /v2/customer?organizationNumber=X → customerId. (3) POST /v2/project with name, number, projectManager(id), startDate, and customer(id) if given. For FIXED PRICE projects: include isFixedPrice(true) and fixedprice (the amount — NOTE: the field name is "fixedprice", all lowercase, NOT "fixedPriceAmount"). NEVER use /v2/project/list — always POST to /v2/project directly.
+- PROJECT WORKFLOW: (1) GET /v2/employee?email=X → projectManager ID. (2) If customer link needed: GET /v2/customer?organizationNumber=X → customerId. (3) POST /v2/project with name, projectManager(id), startDate, and customer(id) if given. Do NOT set "number" — let Tripletex auto-generate it to avoid conflicts. For FIXED PRICE projects: include isFixedPrice(true) and fixedprice (the amount — NOTE: the field name is "fixedprice", all lowercase, NOT "fixedPriceAmount"). NEVER use /v2/project/list — always POST to /v2/project directly.
 - PRODUCT WORKFLOW: (1) If VAT type mentioned: GET /v2/ledger/vatType to list all VAT types → find the matching one by name or percentage (e.g. "Utgående mva lav sats mat 15%"). (2) POST /v2/product with name, number, priceExcludingVatCurrency, vatType(id). Always include vatType if the task mentions a VAT rate.
 - TRAVEL EXPENSE WORKFLOW: Travel expenses require a 2-step process — create the PARENT first, then add child items.
   (1) GET /v2/employee?email=X → employeeId.
@@ -38,6 +38,30 @@ _SYSTEM_PROMPT_FOOTER = """
 - DELETE TRAVEL EXPENSE: GET /v2/travelExpense?employeeId=X → find the travel expense → DELETE /v2/travelExpense/{id}.
 - PAYMENT WORKFLOW: (1) GET /v2/customer?organizationNumber=X → customerId. (2) GET /v2/invoice?invoiceDateFrom=2000-01-01&invoiceDateTo=2030-12-31&customerId=X → look at "values" array, find the right invoice, note its "id" and "amountOutstanding". (3) GET /v2/invoice/paymentType → look at "values" array, find "Bankinnskudd" by name, note its "id". (4) PUT /v2/invoice/{invoiceId}/:payment with QUERY PARAMS ONLY (no body): paymentDate=YYYY-MM-DD, paymentTypeId=X, paidAmount=amountOutstanding, paidAmountCurrency=amountOutstanding.
 - ORDER + INVOICE WORKFLOW: (1) FIRST: set up bank account — GET /v2/ledger/account?isBankAccount=true → if found, PUT /v2/ledger/account/{id} with bankAccountNumber("12345678903") to ensure invoicing works. (2) Create product if needed: POST /v2/product with name, number, priceExcludingVatCurrency. (3) If customer lookup needed: GET /v2/customer?organizationNumber=X → customerId. (4) POST /v2/order with customer(id), deliveryDate, orderDate, orderLines: [{product: {id}, count, unitPriceExcludingVatCurrency}]. Price goes on OrderLine as unitPriceExcludingVatCurrency OR on Product — NEVER as priceExcludingVatCurrency on OrderLine. For PARTIAL invoicing (e.g. "invoice 33%"): set unitPriceExcludingVatCurrency to the partial amount (totalPrice × percentage). (5) To invoice: PUT /v2/order/{orderId}/:invoice with query param invoiceDate=YYYY-MM-DD. Do NOT use POST /v2/invoice.
+- VOUCHER POSTING WORKFLOW (journal entry / bilag): (1) Look up accounts: GET /v2/ledger/account?number=XXXX for each account. (2) POST /v2/ledger/voucher with date, description, and postings array. CRITICAL RULES for postings:
+  - Use amountGross (NOT amount) — the API only processes gross amounts. Positive = debit, negative = credit.
+  - Each posting MUST have "row" set to 1, 2, 3, etc. Row 0 is reserved for system-generated postings and WILL BE REJECTED.
+  - Postings MUST balance (sum of amountGross = zero).
+  - Date MUST be in the current fiscal year (2026). Do NOT use past dates like 2024.
+  - Example: {"postings": [{"account": {"id": 123}, "amountGross": 25200, "amountGrossCurrency": 25200, "row": 1}, {"account": {"id": 456}, "amountGross": -25200, "amountGrossCurrency": -25200, "row": 2}]}.
+  - NEVER use "amount", "isDebit", or "debit"/"credit" fields — they don't exist.
+- ACCOUNTING DIMENSION WORKFLOW: (1) POST /v2/ledger/accountingDimensionName with dimensionName, description, dimensionIndex (1, 2, or 3), active(true). (2) For each value: POST /v2/ledger/accountingDimensionValue with dimensionIndex, displayName, number, active(true), showInVoucherRegistration(true), position. (3) To link a dimension value to a voucher posting, use freeAccountingDimension1({id: valueId}) on the posting (or freeAccountingDimension2/3 for dimension index 2/3). NEVER use "dimensions", "dimensionValue1", "freeDimension1", or "accountingDimensionValues" — those field names DO NOT EXIST.
+- CREDIT NOTE WORKFLOW: (1) GET /v2/invoice to find the invoice. (2) PUT /v2/invoice/{invoiceId}/:createCreditNote with query param date=YYYY-MM-DD. Use the invoiceDate from the original invoice as the credit note date (the date MUST NOT be before the invoice date).
+- SUPPLIER INVOICE WORKFLOW (leverandørfaktura): There is NO POST /supplierInvoice endpoint. Register supplier invoices as vouchers:
+  (1) GET /v2/supplier?organizationNumber=X → supplierId.
+  (2) GET /v2/ledger/account?number=XXXX for expense account (e.g. 6500).
+  (3) GET /v2/ledger/account?number=2400 → supplier debt account (leverandørgjeld).
+  (4) GET /v2/ledger/vatType → find incoming VAT type (e.g. "Fradrag inngående avgift, høy sats" for 25%).
+  (5) POST /v2/ledger/voucher with date (use a date in 2026), description, vendorInvoiceNumber (the invoice number), and postings:
+    - Debit expense: {"account": {"id": expenseAcctId}, "amountGross": totalInclVat, "amountGrossCurrency": totalInclVat, "vatType": {"id": incomingVatId}, "supplier": {"id": supplierId}, "row": 1}
+    - Credit supplier debt: {"account": {"id": 2400AcctId}, "amountGross": -totalInclVat, "amountGrossCurrency": -totalInclVat, "supplier": {"id": supplierId}, "row": 2}
+  Use the GROSS amount (including VAT) on both postings. Tripletex auto-calculates the VAT split when vatType is set.
+- TIMESHEET + PROJECT INVOICE WORKFLOW:
+  (1) GET /v2/employee?email=X → employeeId.
+  (2) GET /v2/project (find by name or customer) → projectId.
+  (3) GET /v2/activity?name=X or GET /v2/activity/>forTimeSheet?projectId=X → find activity. If not found, POST /v2/activity with name, isProjectActivity(true), isChargeable(true).
+  (4) POST /v2/timesheet/entry with employee({id}), project({id}), activity({id}), date (YYYY-MM-DD — use the project's startDate from the GET response, NOT a hardcoded past date), hours (number), hourlyRate (if specified). Only one entry per employee/date/activity/project combination.
+  (5) To invoice: set up bank account (GET /v2/ledger/account?isBankAccount=true → PUT with bankAccountNumber), create product, POST /v2/order with customer({id}), project({id}), orderLines, then PUT /v2/order/{id}/:invoice with query param invoiceDate.
 - ADDRESSES: postalAddress and physicalAddress are ALWAYS JSON objects: {"addressLine1": "Street 12", "postalCode": "0150", "city": "Oslo"}. NEVER send as a string. Parse "Street 12, 0150 Oslo" into separate fields.
 
 ## How to Work
@@ -59,6 +83,7 @@ _SYSTEM_PROMPT_FOOTER = """
 - Only use search_api_docs if the error mentions an UNKNOWN endpoint or you need to discover a sub-resource you've never seen.
 - Never give up on data from the prompt. Never call search_api_docs more than twice per task.
 - NEVER respond saying you need more information or that the prompt is unclear. ALWAYS attempt to complete the task by making API calls. The prompt contains everything you need — interpret it and act.
+- If the task says to register, create, add, update, or delete something, you MUST make a POST/PUT/DELETE call. Never finish with only GET calls — GETs are just preparation for the actual mutation.
 """
 
 

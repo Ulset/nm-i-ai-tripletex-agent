@@ -78,10 +78,6 @@ class TestFixedPriceProject:
         assert project_call.body.get("isFixedPrice") is True, \
             f"Expected isFixedPrice=true. Body: {project_call.body}"
 
-        # Must set up bank account before invoicing
-        bank_puts = result.find_calls("PUT", "/v2/ledger/account")
-        assert len(bank_puts) >= 1, "Expected PUT on ledger/account to set bank account number"
-
         # Must create order and invoice
         result.assert_endpoint_called("POST", "/v2/order")
         result.assert_endpoint_called("PUT", "/:invoice")

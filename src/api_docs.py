@@ -52,6 +52,22 @@ ENDPOINT_REGISTRY = [
     ("GET", "/travelExpense/costCategory", [], "List cost categories for travel expense costs"),
     ("GET", "/ledger/account", [], "?isBankAccount=true to find bank account. ?number=1920 for standard bank."),
     ("PUT", "/ledger/account/{id}", ["name", "number"], "Set bankAccountNumber on bank account — REQUIRED before creating invoices"),
+    ("POST", "/ledger/voucher", ["date", "description", "postings"],
+     "IMPORTANT: Use amountGross (NOT amount) on postings. Postings must balance (sum to zero). sendToLedger query param optional."),
+    ("GET", "/ledger/voucher", [], "?dateFrom=X&dateTo=Y required"),
+    ("DELETE", "/ledger/voucher/{id}", [], "Delete a voucher by ID"),
+    ("POST", "/ledger/accountingDimensionName", ["dimensionName", "dimensionIndex", "active"],
+     "dimensionIndex must be 1, 2, or 3"),
+    ("POST", "/ledger/accountingDimensionValue", ["dimensionIndex", "displayName", "number", "active"],
+     "showInVoucherRegistration(true) to make visible in voucher registration"),
+    ("PUT", "/invoice/{id}/:createCreditNote", [], "Query param date=YYYY-MM-DD required. Nullifies the given invoice."),
+    ("POST", "/timesheet/entry", ["employee", "project", "activity", "date", "hours"],
+     "One entry per employee/date/activity/project. hourlyRate optional."),
+    ("GET", "/timesheet/entry", [], "?employeeId=X&dateFrom=X&dateTo=X"),
+    ("GET", "/activity", [], "?name=X to find by name. ?isProjectActivity=true for project activities."),
+    ("GET", "/activity/>forTimeSheet", [], "?projectId=X (REQUIRED) to find applicable activities"),
+    ("POST", "/activity", ["name"], "isProjectActivity(true), isChargeable(true) for billable project activities"),
+    ("GET", "/supplier", [], "?organizationNumber=X to find by org number"),
 ]
 
 
