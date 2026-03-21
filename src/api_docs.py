@@ -93,6 +93,8 @@ RECIPE_ENDPOINTS = {
     'K': [('POST', '/timesheet/entry'), ('POST', '/activity'), ('POST', '/product'), ('POST', '/order')],
     'L': [('POST', '/employee/employment'), ('POST', '/division'),
            ('POST', '/salary/transaction')],
+    'M': [('POST', '/project'), ('POST', '/activity')],
+    'N': [('POST', '/ledger/voucher')],
 }
 
 
@@ -191,7 +193,7 @@ def get_recipe_schemas(parsed_plan: str) -> str:
     Returns a terse block with one line per endpoint showing required and optional fields.
     """
     import re
-    match = re.search(r'RECIPE:\s*([A-L])', parsed_plan)
+    match = re.search(r'RECIPE:\s*([A-N])', parsed_plan)
     if not match:
         return ""
 

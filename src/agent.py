@@ -37,9 +37,12 @@ Rules:
   G(PAYMENT — registering payment on existing invoice),
   H(TRAVEL EXPENSE), I(VOUCHER/SUPPLIER INVOICE/JOURNAL ENTRY),
   J(CORRECTIONS — credit notes, payment reversals),
-  K(TIMESHEET), L(PAYROLL)
+  K(TIMESHEET), L(PAYROLL),
+  M(LEDGER ANALYSIS — analyzing ledger data, comparing periods, finding accounts, then creating entities based on analysis),
+  N(YEAR-END CLOSING — depreciation, prepaid expense reversals, tax provisions, accruals, year-end adjustments)
 - IMPORTANT: Supplier/vendor invoices (incoming invoices, leverandørfakturaer) are RECIPE I, NOT F. Recipe F is only for customer invoices (outgoing invoices).
 - IMPORTANT: If the task involves registering/logging hours or time on an activity/project AND THEN creating an invoice based on those hours, use RECIPE K (TIMESHEET), NOT F. Recipe F is for direct invoicing with specified products/amounts, not time-based billing.
+- IMPORTANT: If the task involves a full project lifecycle (create project + register hours + supplier costs + invoice), use RECIPE K. It handles all project-related sub-tasks.
 - Include ALL file attachment data in FILE DATA section
 - Be concise — no explanations, just the structured output
 - If the task involves ANY arithmetic (percentages, totals, multiplying hours×rate, VAT splits, summing salary components), add a MATH section with one expression per line. Use only +, -, *, / and numbers. Examples:
@@ -94,15 +97,15 @@ For payment after invoice: GET /v2/invoice/paymentType (no filters) → find "Ba
 (1) GET /v2/employee?email=X. (2) GET /v2/travelExpense/paymentType + GET /v2/travelExpense/costCategory (no filters). (3) POST /v2/travelExpense {employee:{id}, title, date, travelDetails:{departureDate, returnDate, destination, purpose, departureFrom}} — CRITICAL: travelDetails MUST be included or Tripletex creates an "employee expense" instead of a "travel expense report", and per diem/accommodation will fail with 422. (4) Per cost: POST /v2/travelExpense/cost — set isPaidByEmployee:true, link via travelExpense:{id}. (5) Accommodation: POST /v2/travelExpense/accommodationAllowance — MUST include location. (6) Per diem: POST /v2/travelExpense/perDiemCompensation — MUST include location. Do NOT try to deliver/submit/complete the expense — just create it with all items. DELETE: GET /v2/travelExpense?employeeId=X → DELETE /v2/travelExpense/{id}.""",
 
     'I': """## Recipe: VOUCHER [3-8 calls]
-(1) GET /v2/ledger/account?number=XXXX for each account. (2) POST /v2/ledger/voucher {date, description (REQUIRED), postings:[{account:{id}, amountGross:X, amountGrossCurrency:X, row:1}, {account:{id}, amountGross:-X, amountGrossCurrency:-X, row:2}]}. CRITICAL: EVERY posting MUST have "row" field starting at 1 (NOT 0) — omitting row causes instant 422. Use amountGross+amountGrossCurrency (same value), never "amount"/"isDebit"/"debit"/"credit". Postings must balance (sum to zero).
+(1) GET /v2/ledger/account?number=XXXX for each account. (2) POST /v2/ledger/voucher {date, description (REQUIRED), postings:[{account:{id}, amountGross:X, amountGrossCurrency:X, row:1}, {account:{id}, amountGross:-X, amountGrossCurrency:-X, row:2}]}. CRITICAL: EVERY posting MUST have "row" field starting at 1 (NOT 0) — omitting row causes instant 422. Use amountGross+amountGrossCurrency (same value), never "amount"/"isDebit"/"debit"/"credit". Postings must balance (sum to zero). If a DEPARTMENT is mentioned: GET /v2/department?name=X → add department:{id} to each posting (NOT accounting dimensions).
 DIMENSIONS: POST /v2/ledger/accountingDimensionName — set dimensionIndex:1, active:true. Per value: POST /v2/ledger/accountingDimensionValue — set showInVoucherRegistration:true. Link via freeAccountingDimension1:{id} on posting (or 2/3). NEVER use "dimensions"/"dimensionValue1"/"freeDimension1".
-SUPPLIER INVOICE: GET /v2/supplier?organizationNumber=X, GET accounts (expense + 2400), GET /v2/ledger/vatType → CRITICAL: find the VAT type with "Inngående" (incoming/input) in the name AND 25% rate. Do NOT use "Utgående" (outgoing/output) VAT — that is for sales, not purchases. The correct one is typically named "Inngående avgift, høy sats" or similar. GET /v2/ledger/voucherType?name=Leverandørfaktura. POST /v2/ledger/voucher {date, description, vendorInvoiceNumber:"INV-XXX", voucherType:{id}, postings:[{account:{id:expenseAcct}, amountGross:totalInclVat, amountGrossCurrency:totalInclVat, vatType:{id:incomingVAT}, supplier:{id}, row:1}, {account:{id:2400acct}, amountGross:-totalInclVat, amountGrossCurrency:-totalInclVat, supplier:{id}, row:2}]}. CRITICAL VAT HANDLING: set amountGross on the EXPENSE posting to the TOTAL INCLUDING VAT (same as AP line but positive). Set vatType on the expense posting — Tripletex will auto-split the amount into net expense + VAT. Postings MUST balance (sum to zero). Only 2 postings needed. Only set vatType on the expense posting, NOT on the 2400 posting. Use "voucherType" (NOT "supplierVoucherType"). CRITICAL: always set voucherType to "Leverandørfaktura" type.""",
+SUPPLIER INVOICE: (1) GET /v2/supplier?organizationNumber=X. If not found: create via POST /v2/customer {name, organizationNumber, isSupplier:true, isCustomer:false, postalAddress:{addressLine1,postalCode,city}, email, invoiceEmail}. Do NOT use POST /v2/supplier. (2) GET accounts (expense + 2400). (3) GET /v2/ledger/vatType → CRITICAL: find the VAT type with "Inngående" (incoming/input) in the name AND 25% rate. Do NOT use "Utgående" (outgoing/output) or ID 1 — that is output VAT for sales. Look for name containing "Inngående" or "Fradrag". (4) GET /v2/ledger/voucherType?name=Leverandørfaktura. (5) POST /v2/ledger/voucher {date:invoiceDate, description, vendorInvoiceNumber:"INV-XXX", voucherType:{id}, postings:[{account:{id:expenseAcct}, amountGross:totalInclVat, amountGrossCurrency:totalInclVat, vatType:{id:incomingVAT}, supplier:{id}, row:1}, {account:{id:2400acct}, amountGross:-totalInclVat, amountGrossCurrency:-totalInclVat, supplier:{id}, row:2}]}. CRITICAL VAT: set amountGross to TOTAL INCLUDING VAT on BOTH lines (positive on expense, negative on AP). Set vatType ONLY on expense posting. Postings MUST balance. Use "voucherType" (NOT "supplierVoucherType").""",
 
     'J': """## Recipe: CORRECTIONS [2-4 calls]
 CREDIT NOTE (invoice is wrong): GET /v2/invoice?invoiceDateFrom=2000-01-01&invoiceDateTo=2030-12-31&customerId=X → PUT /v2/invoice/{id}/:createCreditNote?date=YYYY-MM-DD (date >= invoiceDate). PAYMENT REVERSAL (bank returned payment): GET /v2/customer → GET /v2/invoice?invoiceDateFrom=2000-01-01&invoiceDateTo=2030-12-31&customerId=X → GET /v2/ledger/voucher?dateFrom=2000-01-01&dateTo=2030-12-31 → find ALL vouchers with "Betaling" or "Payment" or "Innbetaling" in description → DELETE each payment voucher (NOT the invoice voucher). Multiple payment vouchers may exist — delete ALL. Use DELETE voucher, NOT createCreditNote. CRITICAL: GET /v2/invoice ALWAYS requires invoiceDateFrom and invoiceDateTo params.""",
 
     'K': """## Recipe: TIMESHEET [4-14 calls]
-(1) GET /v2/employee?email=X. (2) GET /v2/project?name=X → projectId, note startDate and customer. (3) GET /v2/activity?name=X or POST /v2/activity — set isProjectActivity:true, isChargeable:true. (4) POST /v2/timesheet/entry {employee:{id}, project:{id}, activity:{id}, date:YYYY-MM-DD, hours:N} — use project startDate for date (not past date). ONLY use /v2/timesheet/entry (NOT /v2/time-tracking). If task says to invoice: (5) GET /v2/ledger/account?isBankAccount=true → PUT with bankAccountNumber:"12345678903" (11 digits). (6) POST /v2/product with name and price (use hourly rate from task). (7) POST /v2/order with customer:{id}, orderDate, deliveryDate, orderLines:[{product:{id}, count:hours, unitPriceExcludingVatCurrency:hourlyRate}]. (8) PUT /v2/order/{id}/:invoice?invoiceDate=YYYY-MM-DD. CRITICAL: steps 5-8 must ALL be done. Set up bank BEFORE invoice.""",
+(1) GET /v2/employee?email=X. (2) GET /v2/project?name=X → projectId, note startDate and customer. If project needs creation: POST /v2/project {name, customer:{id}, projectManager:{id}, startDate:today, isFixedPrice:true/false, fixedprice:amount}. (3) GET /v2/activity?name=X — if not found, POST /v2/activity {name, activityType:"PROJECT_GENERAL_ACTIVITY", isChargeable:true}. Valid activityType values: GENERAL_ACTIVITY, PROJECT_GENERAL_ACTIVITY, TASK. (4) POST /v2/timesheet/entry {employee:{id}, project:{id}, activity:{id}, date:YYYY-MM-DD, hours:N} — use project startDate for date (not past date). ONLY use /v2/timesheet/entry (NOT /v2/time-tracking). If task says to invoice: (5) GET /v2/ledger/account?isBankAccount=true → PUT with bankAccountNumber:"12345678903" (11 digits). (6) POST /v2/product with name and price (use hourly rate from task). (7) POST /v2/order with customer:{id}, orderDate, deliveryDate, orderLines:[{product:{id}, count:hours, unitPriceExcludingVatCurrency:hourlyRate}]. (8) PUT /v2/order/{id}/:invoice?invoiceDate=YYYY-MM-DD. CRITICAL: steps 5-8 must ALL be done. Set up bank BEFORE invoice. For supplier costs: use Recipe I pattern (voucher with supplier).""",
 
     'L': """## Recipe: PAYROLL [5-9 calls]
 (1) GET /v2/employee?email=X → check dateOfBirth. If null: PUT /v2/employee/{id} with dateOfBirth:"1990-01-01".
@@ -113,6 +116,25 @@ CREDIT NOTE (invoice is wrong): GET /v2/invoice?invoiceDateFrom=2000-01-01&invoi
   {account:{id:5000acct}, amountGross:bonus, amountGrossCurrency:bonus, row:2},
   {account:{id:2920acct}, amountGross:-(baseSalary+bonus), amountGrossCurrency:-(baseSalary+bonus), row:3}
 ]}. Debit 5000, credit 2920. Postings MUST balance. EVERY posting needs "row" starting at 1. Do NOT use /v2/salary/transaction.""",
+
+    'M': """## Recipe: LEDGER ANALYSIS [4-10 calls]
+For tasks requiring analysis of ledger/accounting data, comparing periods, or finding specific accounts.
+(1) GET /v2/balanceSheet?dateFrom=YYYY-MM-01&dateTo=YYYY-MM-DD&accountNumberFrom=4000&accountNumberTo=7999 for EACH period to compare. Cost/expense accounts are 4000-7999. This returns aggregated balances per account — no need to sum postings manually.
+(2) Compare the results: match accounts by number, calculate differences between periods, identify the top N accounts as requested.
+(3) GET /v2/employee?count=1 → get any employee as project manager (required even for internal projects).
+(4) Create requested entities based on analysis results. For internal projects: POST /v2/project {name:accountName, isInternal:true, projectManager:{id}, startDate:"YYYY-MM-DD"}. For activities: POST /v2/activity {name:accountName, activityType:"PROJECT_GENERAL_ACTIVITY", isChargeable:true}. Use /list endpoints to batch create when possible.
+IMPORTANT: Parse the balanceSheet response carefully. Each entry has account:{number, name} and a balance/amount field. Compare same accounts across periods to find increases/decreases.""",
+
+    'N': """## Recipe: YEAR-END CLOSING [8-12 calls]
+For year-end financial statements: depreciation, prepaid reversals, tax provisions, accruals.
+(1) Look up ALL needed accounts in as few GETs as possible. GET /v2/ledger/account?number=XXXX for each unique account. Reuse IDs across vouchers.
+(2) DEPRECIATION: For each asset, POST /v2/ledger/voucher {date:"YYYY-12-31", description:"Avskrivning <asset name>", postings:[
+  {account:{id:EXPENSE_ACCT}, amountGross:amount, amountGrossCurrency:amount, row:1},
+  {account:{id:ACCUM_DEPR_ACCT}, amountGross:-amount, amountGrossCurrency:-amount, row:2}
+]}. CRITICAL: Debit the depreciation EXPENSE account (e.g. 6010), credit the ACCUMULATED DEPRECIATION account (e.g. 1209). Do NOT credit the asset accounts (1230/1240/1250) — those hold the original cost. Use COMPUTED AMOUNTS from the pre-parser for depreciation = cost / useful_life.
+(3) PREPAID EXPENSES: POST /v2/ledger/voucher — debit the expense account specified (or 6300 if not specified), credit the prepaid account (e.g. 1700).
+(4) TAX PROVISION: GET /v2/balanceSheet?dateFrom=YYYY-01-01&dateTo=YYYY-12-31&accountNumberFrom=3000&accountNumberTo=8699 to get all revenue (3000-3999) and expense (4000-8699) accounts. Taxable profit = |sum of revenue balances| - |sum of expense balances|. Tax = profit × rate. POST /v2/ledger/voucher — debit tax expense account (e.g. 8700), credit tax payable (e.g. 2920).
+CRITICAL: ALWAYS set both amountGross AND amountGrossCurrency (same value). Every posting needs "row" starting at 1. Use fiscal year-end date on all vouchers.""",
 }
 
 _ACTION = """## Action
@@ -282,7 +304,7 @@ class TripletexAgent:
         # Extract recipe letter for logging and future dynamic prompt assembly
         recipe_letter = None
         if parsed_plan:
-            match = _re.search(r'RECIPE:\s*([A-L])', parsed_plan)
+            match = _re.search(r'RECIPE:\s*([A-N])', parsed_plan)
             if match:
                 recipe_letter = match.group(1)
 
