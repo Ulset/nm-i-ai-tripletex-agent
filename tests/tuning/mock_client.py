@@ -109,7 +109,10 @@ class AgentTestResult:
             status = "ERROR" if c.error else "OK"
             print(f"  {i}. [{status}] {c.method} {c.endpoint}")
             if c.body:
-                print(f"     body keys: {list(c.body.keys())}")
+                if isinstance(c.body, dict):
+                    print(f"     body keys: {list(c.body.keys())}")
+                else:
+                    print(f"     body: list with {len(c.body)} items")
             if c.params:
                 print(f"     params: {c.params}")
             if c.error:

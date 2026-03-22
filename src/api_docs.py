@@ -5,8 +5,10 @@ that the agent can use to discover endpoints and their schemas.
 Supports OpenAPI 3.x (requestBody/content) with 2.x fallback (parameters[in=body]).
 """
 
+import difflib
 import json
 import logging
+from dataclasses import dataclass, field
 from functools import lru_cache
 
 import requests
@@ -572,3 +574,291 @@ def generate_endpoint_reference() -> str:
         lines.append(entry)
 
     return "\n".join(lines)
+
+
+# ── Pre-call Validation ──────────────────────────────────────────────
+
+_ENDPOINT_CORRECTIONS = {
+    "/v2/voucher": "/v2/ledger/voucher",
+    "/v2/vatType": "/v2/ledger/vatType",
+    "/v2/voucherType": "/v2/ledger/voucherType",
+    "/v2/account": "/v2/ledger/account",
+}
+
+# (endpoint_fragment, wrong_field) → correct_field  (None = remove the key)
+_FIELD_CORRECTIONS: dict[tuple[str, str], str | None] = {
+    ("ledger/voucher", "amount"): "amountGross",
+    ("ledger/voucher", "debit"): None,
+    ("ledger/voucher", "credit"): None,
+    ("ledger/voucher", "isDebit"): None,
+    ("ledger/voucher", "debitAmount"): "amountGross",
+    ("ledger/voucher", "creditAmount"): "amountGross",
+    ("ledger/voucher", "supplierVoucherType"): "voucherType",
+    ("order", "quantity"): "count",
+    ("order", "priceExcludingVatCurrency"): "unitPriceExcludingVatCurrency",
+    # employmentType, occupationCode, percentageOfFullTimeEquivalent are handled
+    # by auto-nesting into employmentDetails in validate_and_correct_call()
+    ("customer", "invoiceAddress"): "postalAddress",
+    ("customer", "bankAccountNumber"): None,  # Not a customer field, silently remove
+    ("product", "price"): "priceExcludingVatCurrency",
+    ("project", "fixedPrice"): "fixedprice",
+    ("project", "fixedPriceAmount"): "fixedprice",
+    ("activity", "type"): "activityType",
+}
+
+
+@dataclass
+class ValidationResult:
+    corrected_body: dict | list | None = None
+    corrected_endpoint: str | None = None
+    warnings: list[str] = field(default_factory=list)
+    was_modified: bool = False
+
+
+def _get_valid_field_map(spec: dict, spec_path: str, method: str) -> dict[str, str] | None:
+    """Build {lowercase_name: original_name} map from spec schema properties.
+
+    Returns None if the endpoint/method has no body schema.
+    """
+    path_info = spec.get("paths", {}).get(spec_path, {})
+    method_info = path_info.get(method.lower())
+    if not method_info:
+        return None
+
+    body_schema = _get_request_body_schema(method_info)
+    if not body_schema:
+        return None
+
+    if "$ref" in body_schema:
+        body_schema = _resolve_ref(spec, body_schema["$ref"])
+
+    props = body_schema.get("properties", {})
+    return {name.lower(): name for name in props}
+
+
+def _correct_body_fields(
+    body: dict,
+    field_map: dict[str, str],
+    endpoint: str,
+    warnings: list[str],
+) -> dict:
+    """Recursively correct field names in the request body."""
+    corrected: dict = {}
+
+    # Determine endpoint fragment for _FIELD_CORRECTIONS lookup
+    ep_fragment = endpoint.lstrip("/v2/").lstrip("/")
+
+    for key, value in body.items():
+        new_key = key
+
+        # 1. Check hardcoded corrections first
+        matched_correction = False
+        for (frag, wrong), right in _FIELD_CORRECTIONS.items():
+            if frag in ep_fragment and key == wrong:
+                if right is None:
+                    warnings.append(f"Removed invalid field '{key}' from {endpoint}")
+                    matched_correction = True
+                    break
+                else:
+                    warnings.append(f"Field '{key}' → '{right}' on {endpoint}")
+                    new_key = right
+                    matched_correction = True
+                    break
+
+        if matched_correction and new_key == key and right is None:
+            # Field was removed
+            continue
+
+        # 2. Case-insensitive match against spec
+        if not matched_correction and key not in field_map.values():
+            key_lower = key.lower()
+            if key_lower in field_map:
+                spec_name = field_map[key_lower]
+                if spec_name != key:
+                    warnings.append(f"Field '{key}' → '{spec_name}' (case fix) on {endpoint}")
+                    new_key = spec_name
+            else:
+                # 3. Fuzzy match for typos
+                close = difflib.get_close_matches(key_lower, field_map.keys(), n=1, cutoff=0.8)
+                if close:
+                    spec_name = field_map[close[0]]
+                    warnings.append(f"Field '{key}' → '{spec_name}' (fuzzy match) on {endpoint}")
+                    new_key = spec_name
+
+        # Recurse into nested dicts and list-of-dicts
+        if isinstance(value, dict):
+            value = _correct_body_fields(value, field_map, endpoint, warnings)
+        elif isinstance(value, list):
+            value = [
+                _correct_body_fields(item, field_map, endpoint, warnings)
+                if isinstance(item, dict) else item
+                for item in value
+            ]
+
+        corrected[new_key] = value
+
+    return corrected
+
+
+def validate_and_correct_call(
+    method: str, endpoint: str, body: dict | list | None
+) -> ValidationResult:
+    """Validate and auto-correct an API call before sending it.
+
+    Returns a ValidationResult with corrected values and warnings.
+    """
+    result = ValidationResult()
+
+    # 1. Endpoint correction
+    if endpoint in _ENDPOINT_CORRECTIONS:
+        corrected = _ENDPOINT_CORRECTIONS[endpoint]
+        result.warnings.append(f"Endpoint '{endpoint}' → '{corrected}'")
+        result.corrected_endpoint = corrected
+        result.was_modified = True
+        endpoint = corrected  # Use corrected endpoint for field validation
+
+    # 2. Unwrap {"values": [...]} on /list endpoints — API expects bare array
+    if endpoint.endswith("/list") and isinstance(body, dict) and "values" in body and isinstance(body["values"], list):
+        result.warnings.append(f"Unwrapped {{values: [...]}} → bare array on {endpoint}")
+        result.corrected_body = body["values"]
+        result.was_modified = True
+        return result  # /list endpoints take arrays, skip field validation
+
+    # 3. Auto-nest employment detail fields into employmentDetails array
+    if method.upper() in ("POST", "PUT") and isinstance(body, dict) and "employee/employment" in endpoint:
+        detail_keys = {"employmentType", "occupationCode", "percentageOfFullTimeEquivalent",
+                       "workingHoursScheme", "annualSalary"}
+        found = {k: body[k] for k in detail_keys if k in body}
+        if found and "employmentDetails" not in body:
+            for k in found:
+                del body[k]
+            body["employmentDetails"] = [{"date": body.get("startDate", "2026-01-01"), **found}]
+            result.warnings.append(f"Moved {list(found.keys())} into employmentDetails array")
+            result.corrected_body = body
+            result.was_modified = True
+
+    # 4. Body field validation (POST/PUT only, skip if body is None or list)
+    if method.upper() in ("POST", "PUT") and isinstance(body, dict):
+        try:
+            spec = _load_spec()
+        except Exception:
+            return result
+
+        spec_path = _match_runtime_path_to_spec(endpoint, spec)
+        if not spec_path:
+            return result
+
+        field_map = _get_valid_field_map(spec, spec_path, method)
+        if not field_map:
+            return result
+
+        corrected_body = _correct_body_fields(body, field_map, endpoint, result.warnings)
+        if corrected_body != body:
+            result.corrected_body = corrected_body
+            result.was_modified = True
+
+    return result
+
+
+# ── Spec-derived Examples ─────────────────────────────────────────────
+
+def _get_registry_required_fields(method: str, spec_path: str) -> set[str]:
+    """Get the required fields for an endpoint from ENDPOINT_REGISTRY."""
+    for reg_method, reg_path, req_fields, _ in ENDPOINT_REGISTRY:
+        if reg_method == method.upper() and reg_path == spec_path:
+            return set(req_fields)
+    return set()
+
+
+def _generate_example_body(spec: dict, method: str, spec_path: str) -> dict | None:
+    """Generate a minimal example body from the spec for the given endpoint.
+
+    Uses ENDPOINT_REGISTRY required fields to decide which fields to include.
+    """
+    path_info = spec.get("paths", {}).get(spec_path, {})
+    method_info = path_info.get(method.lower())
+    if not method_info:
+        return None
+
+    body_schema = _get_request_body_schema(method_info)
+    if not body_schema:
+        return None
+
+    if "$ref" in body_schema:
+        body_schema = _resolve_ref(spec, body_schema["$ref"])
+
+    registry_fields = _get_registry_required_fields(method, spec_path)
+    return _build_example(spec, body_schema, include_fields=registry_fields)
+
+
+def _build_example(
+    spec: dict, schema: dict, depth: int = 0, include_fields: set[str] | None = None,
+) -> dict | None:
+    """Build a minimal example dict from a schema.
+
+    At depth 0, uses include_fields (from registry) to select which fields to show.
+    At depth > 0, limits to required fields + first few properties to stay compact.
+    """
+    if "$ref" in schema:
+        schema = _resolve_ref(spec, schema["$ref"])
+
+    props = schema.get("properties", {})
+    if not props:
+        return None
+
+    example: dict = {}
+    for name, prop in props.items():
+        if name in _SKIP_FIELDS:
+            continue
+        # Only include fields from the registry required list
+        if include_fields and name not in include_fields:
+            continue
+
+        actual = prop
+        if "$ref" in prop:
+            actual = _resolve_ref(spec, prop["$ref"])
+
+        type_str = actual.get("type", "object")
+
+        if type_str == "object" or "$ref" in prop:
+            example[name] = {"id": 0}
+        elif type_str == "array":
+            # Don't expand nested array items — recipe text describes the structure
+            example[name] = [{}]
+        elif type_str == "string":
+            if "date" in name.lower():
+                example[name] = "YYYY-MM-DD"
+            else:
+                example[name] = "..."
+        elif type_str == "integer" or type_str == "number":
+            example[name] = 0
+        elif type_str == "boolean":
+            example[name] = False
+        else:
+            example[name] = "..."
+
+    return example if example else None
+
+
+def get_recipe_examples(recipe_letter: str) -> str:
+    """Generate compact example request bodies from the spec for a recipe's endpoints."""
+    endpoints = RECIPE_ENDPOINTS.get(recipe_letter, [])
+    if not endpoints:
+        return ""
+
+    try:
+        spec = _load_spec()
+    except Exception:
+        return ""
+
+    lines = []
+    for method, spec_path in endpoints:
+        example = _generate_example_body(spec, method, spec_path)
+        if example:
+            compact = json.dumps(example, ensure_ascii=False, separators=(",", ":"))
+            lines.append(f"{method} /v2{spec_path}: {compact}")
+
+    if not lines:
+        return ""
+
+    return "## Example request bodies (from API spec — use these exact field names):\n" + "\n".join(lines)

@@ -104,6 +104,32 @@ class TestFileProcessorImage:
         assert "data:image/png;base64," in content[1]["image_url"]["url"]
 
 
+class TestFileProcessorCSV:
+    def test_extracts_text_from_csv_utf8(self):
+        csv_content = "date,description,amount\n2026-01-15,Office supplies,1234.56\n"
+        b64 = base64.b64encode(csv_content.encode("utf-8")).decode()
+        file = FileAttachment(filename="transactions.csv", content_base64=b64, mime_type="text/csv")
+
+        fp = FileProcessor()
+        result = fp.process_files([file], model="google/gemini-2.5-flash")
+
+        assert len(result) == 1
+        assert result[0]["filename"] == "transactions.csv"
+        assert "Office supplies" in result[0]["extracted_text"]
+        assert "1234.56" in result[0]["extracted_text"]
+
+    def test_extracts_text_from_csv_latin1_fallback(self):
+        csv_content = "name,city\nØstensen,Tromsø\n"
+        b64 = base64.b64encode(csv_content.encode("latin-1")).decode()
+        file = FileAttachment(filename="data.csv", content_base64=b64, mime_type="text/csv")
+
+        fp = FileProcessor()
+        result = fp.process_files([file], model="google/gemini-2.5-flash")
+
+        assert len(result) == 1
+        assert "stensen" in result[0]["extracted_text"]
+
+
 class TestFileProcessorMultipleFiles:
     def test_processes_multiple_files(self):
         pdf1 = _make_test_pdf("First document")

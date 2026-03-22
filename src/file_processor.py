@@ -33,6 +33,11 @@ class FileProcessor:
             try:
                 if file.mime_type == "application/pdf":
                     extracted = self._extract_pdf_text(raw, file, model)
+                elif file.mime_type == "text/csv":
+                    try:
+                        extracted = raw.decode("utf-8")
+                    except UnicodeDecodeError:
+                        extracted = raw.decode("latin-1")
                 elif file.mime_type in IMAGE_MIME_TYPES:
                     extracted = self._extract_image_text(file.content_base64, file.mime_type, model)
                 else:

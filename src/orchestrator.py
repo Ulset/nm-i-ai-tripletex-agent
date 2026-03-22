@@ -33,7 +33,7 @@ class TaskOrchestrator:
             processor = FileProcessor()
             file_contents = processor.process_files(
                 request.files,
-                self.config.llm_model,
+                "google/gemini-2.5-flash",  # Hardcoded: Flash for OCR
             )
             logger.info("Processed %d files", len(file_contents))
 

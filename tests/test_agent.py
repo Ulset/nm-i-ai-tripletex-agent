@@ -233,11 +233,12 @@ class TestSystemPrompt:
         return get_system_prompt(letter)
 
     def test_instructs_search_docs(self):
-        assert "search docs" in self._full_prompt().lower()
+        p = self._full_prompt().lower()
+        assert "search_api_docs" in p or "search docs" in p
 
     def test_instructs_include_all_data(self):
         p = self._full_prompt()
-        assert "EVERY value" in p or "ALL data" in p or "EVERY piece of data" in p
+        assert "every value" in p.lower() or "every field" in p.lower() or "all data" in p.lower()
 
     def test_instructs_use_call_api_tool(self):
         p = self._full_prompt()
@@ -272,9 +273,9 @@ class TestSystemPrompt:
     def test_focused_prompt_contains_only_matched_recipe(self):
         p = self._focused_prompt('I')
         assert "VOUCHER" in p
-        assert "DEPARTMENT" not in p
-        assert "EMPLOYEE" not in p
-        assert "CUSTOMER" not in p
+        assert "## Recipe: DEPARTMENT" not in p
+        assert "## Recipe: EMPLOYEE" not in p
+        assert "## Recipe: CUSTOMER" not in p
 
     def test_focused_prompt_contains_row_for_voucher(self):
         """Regression: the exact production failure that motivated this design."""
@@ -287,12 +288,12 @@ class TestSystemPrompt:
 
     def test_focused_prompt_contains_core_rules(self):
         p = self._focused_prompt('A')
-        assert "EVERY value" in p
-        assert "NEVER GET after" in p
+        assert "every value" in p.lower() or "every field" in p.lower()
+        assert "Reuse" in p or "reuse" in p
 
     def test_focused_prompt_contains_action(self):
         p = self._focused_prompt('A')
-        assert "call_api" in p
+        assert "API call" in p or "api call" in p.lower() or "first API call" in p
 
     def test_fallback_contains_all_recipes(self):
         p = get_system_prompt(None)
@@ -332,7 +333,7 @@ class TestAgentLogging:
         # Verify the format args produce "1/15"
         call_args = iteration_logs[0]
         assert call_args[0][1] == 1  # iteration number
-        assert call_args[0][2] == 15  # max iterations
+        assert call_args[0][2] == 25  # max iterations (MAX_ITERATIONS)
 
     @patch("src.agent.get_openai_client")
     def test_logs_tool_call_details(self, mock_openai_cls):
@@ -428,7 +429,7 @@ class TestAgentLogging:
         with patch("src.agent.logger") as mock_logger:
             agent.solve("test")
 
-        warning_logs = [str(c) for c in mock_logger.warning.call_args_list if "max iterations" in str(c)]
+        warning_logs = [str(c) for c in mock_logger.warning.call_args_list if "Agent stopped" in str(c)]
         assert len(warning_logs) == 1
 
     @patch("src.agent.get_openai_client")

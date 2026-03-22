@@ -1,8 +1,7 @@
-"""Tuning tests for payroll (salary transaction) workflow.
+"""Tuning tests for payroll workflow using ledger vouchers.
 
-Based on production failure (2026-03-20 15:17): agent hit max iterations because
-employee had no employment/dateOfBirth, employment had no division, and agent
-forgot the 'year' field on salary/transaction.
+Recipe L uses POST /v2/ledger/voucher with salary expense (5000) and
+payable (2920) postings — NOT /v2/salary/transaction.
 """
 
 import pytest
@@ -12,7 +11,7 @@ from tests.tuning.mock_client import MockTripletexClient
 
 
 def _make_payroll_mock() -> MockTripletexClient:
-    """Set up mock with employee and salary types for payroll tasks."""
+    """Set up mock with employee and ledger accounts for payroll tasks."""
     mock = MockTripletexClient()
 
     # Employee (has dateOfBirth and employment already — happy path)
@@ -32,18 +31,16 @@ def _make_payroll_mock() -> MockTripletexClient:
         "division": {"id": 1},
     })
 
-    # Salary types
-    mock.register_entity("salary/type", {
-        "id": 200,
-        "number": "1120",
-        "name": "Fastlønn",
-        "description": "Fastlønn",
+    # Ledger accounts for payroll voucher
+    mock.register_entity("ledger/account", {
+        "id": 5000,
+        "number": 5000,
+        "name": "Lønn",
     })
-    mock.register_entity("salary/type", {
-        "id": 201,
-        "number": "1350",
-        "name": "Bonus",
-        "description": "Bonus",
+    mock.register_entity("ledger/account", {
+        "id": 2920,
+        "number": 2920,
+        "name": "Skyldig lønn",
     })
 
     return mock
@@ -51,7 +48,7 @@ def _make_payroll_mock() -> MockTripletexClient:
 
 @skip_no_vertex
 class TestPayroll:
-    """Agent should create salary transactions correctly."""
+    """Agent should create payroll voucher with correct postings."""
 
     def test_payroll_german(self, run_agent):
         """Production prompt (German): register salary with base + bonus."""
@@ -66,17 +63,15 @@ class TestPayroll:
         result = run_agent(prompt, mock)
         result.print_summary()
 
-        # Must create salary transaction
-        result.assert_endpoint_called("POST", "/v2/salary/transaction")
-        tx_call = result.find_calls("POST", "/v2/salary/transaction")[0]
-        assert tx_call.body is not None
-
-        # Must include year field
-        assert "year" in tx_call.body, \
-            f"Must include 'year' in salary/transaction. Keys: {list(tx_call.body.keys())}"
+        # Must create voucher with salary postings
+        result.assert_endpoint_called("POST", "/v2/ledger/voucher")
+        voucher_call = result.find_calls("POST", "/v2/ledger/voucher")[0]
+        assert voucher_call.body is not None
+        assert "postings" in voucher_call.body, \
+            f"Voucher must have postings. Keys: {list(voucher_call.body.keys())}"
 
         result.assert_no_errors()
-        result.assert_max_calls(7)
+        result.assert_max_calls(8)
 
     def test_payroll_norwegian(self, run_agent):
         """Norwegian: register salary."""
@@ -91,6 +86,6 @@ class TestPayroll:
         result = run_agent(prompt, mock)
         result.print_summary()
 
-        result.assert_endpoint_called("POST", "/v2/salary/transaction")
+        result.assert_endpoint_called("POST", "/v2/ledger/voucher")
         result.assert_no_errors()
-        result.assert_max_calls(7)
+        result.assert_max_calls(8)
