@@ -2,7 +2,17 @@
 
 ### NM i AI 2026 — Norwegian National Championship in AI
 
-> An AI agent that completes accounting tasks in [Tripletex](https://tripletex.no) by reading task prompts in 7 languages, classifying them into recipes, and executing the right API calls with minimal errors.
+> An autonomous AI agent that completes real-world accounting tasks in [Tripletex](https://tripletex.no) — handling 30 task types across 7 languages, from simple customer creation to complex year-end closing, by classifying multilingual prompts into structured recipes and executing multi-step API workflows with error recovery.
+
+---
+
+## Highlights
+
+- **Multilingual NLP** — processes task prompts in 7 languages (Norwegian Bokmål, Nynorsk, English, Spanish, Portuguese, German, French) with reliable data extraction and translation
+- **Automated recipe classification** — pre-parser classifies 30 task types into 14 execution recipes, each with tailored API schemas and step-by-step instructions
+- **Adaptive model selection** — uses Gemini 2.5 Pro for complex recipes and Flash for simpler ones, with automatic downgrade under time pressure to stay within the 5-minute timeout
+- **Self-healing error recovery** — 422 errors are enriched with endpoint schema context and fed back to the LLM, enabling the agent to correct and retry without human intervention
+- **Two-tool simplicity** — the entire accounting domain is handled with just `call_api` and `search_api_docs`, keeping the agent focused and reliable
 
 ---
 
